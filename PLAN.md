@@ -154,7 +154,7 @@ Experiments (all hands-off; ask Baris to uninstall Quiet Rebellion or force-stop
 2. Greeting: what arrives in the first 2 s after connect, untouched?
 3. Latency: send GET battery with no delay. Time to reply? Run 20 times, record min/median/max.
 4. Burst: 10 GETs back-to-back with no gap. All answered and in order? If not, find the smallest gap that works.
-5. Passive listen: connect, send nothing for 8 minutes (or longer under whichever keep-awake method works), record any unsolicited frames. Then change mode and ANC via the protocol from a *second* connection attempt or via timed writes, and see whether the device echoes anything extra.
+5. Passive listen: connect, send nothing for 8 minutes (or longer under whichever keep-awake method works), record any unsolicited frames. Probe a second RFCOMM socket once while the first is open and record the error (expected to be refused). Then timed writes on the single connection: snapshot mode and 31.10, change mode (START 31.3) and ANC (SETGET 31.10), log every frame for 3 s after each write's reply (anything beyond the matching reply is unsolicited), restore, confirm by read-back. If the restore fails, stop and report.
 6. Firmware: GET 0.5. Run GET on every address in the feature map and save the raw payloads into `:bmap` test fixtures.
 7. Toggle phone Bluetooth off/on: does the socket die cleanly, and how long until the headphones reconnect?
 

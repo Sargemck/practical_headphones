@@ -7,7 +7,7 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 ## Working agreement
 
 - Work from `PLAN.md`, one milestone at a time. Never start the next milestone until Baris says the current PR is approved.
-- At the start of a milestone, enter plan mode, write the plan, and stop. Baris takes it to the reviewer. Code after approval.
+- At the start of a milestone, enter plan mode, write the plan, and stop. Commit it as `docs/plans/<milestone>.md` on the milestone branch and push; the reviewer reads plans and PRs from GitHub. Code after approval.
 - One branch per milestone: `m<N>-<slug>`. Open a PR into `main`. Never commit to `main` directly.
 - PR description: what changed, how it was tested (unit + on-device), screenshots for UI, open questions, anything that differs from the plan and why.
 - Small commits with clear messages.
