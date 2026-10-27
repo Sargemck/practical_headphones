@@ -18,9 +18,11 @@ Rules:
 - Never send power-off or pairing-mode during hands-off runs. Nobody's there to turn the headphones back on.
 
 **Desk setup** (Claude Code asks for it at the start of a hands-off run; Baris sets it up and walks away):
-- Pixel on the USB cable, Developer options > "Stay awake" on, screen unlocked
+- Pixel on the USB cable, phone unlocked at the start of the run ("Stay awake" is blocked by device policy; debug builds keep our screen on and show over the lock screen)
 - Headphones on the desk, powered on, connected to the phone
 - Bose app and Quiet Rebellion not running
+
+Every hands-off run starts by checking the headphones are connected. They sleep after 10 min idle off-head. If they're asleep and nothing remote wakes them, that's one batched ask to Baris.
 
 Definition of done for every milestone:
 - `./gradlew test lint assembleDebug` green
@@ -38,7 +40,7 @@ Definition of done for every milestone:
 
 ## Decisions (Baris)
 
-- **D1 App name + package ID.** Needed by M0 (can start with a working ID, but rename before M7; it's permanent once on Play). Avoid "Bose" in both.
+- **D1 App name + package ID.** Done: Practical Headphones, `io.github.sargemck.practicalheadphones`.
 - **D2 GitHub repo** (private is fine). Created in S0. Tell the reviewer `owner/repo` so PRs can be reviewed directly.
 
 ---
@@ -55,10 +57,10 @@ The only milestone that commits straight to `main` (the repo is empty). No PR; B
 6. **Phone link.** `adb devices` must list the Pixel as `device`.
    - `unauthorized`: ask Baris to tap Allow on the phone.
    - Not listed: try `sdkmanager "extras;google;usb_driver"` and walk Baris through the Device Manager driver update, or switch to wireless debugging (`adb pair`, `adb connect`).
-7. **Prove the hands-off toolkit works** on the Pixel (Android 16), and record results in FINDINGS:
+7. **Prove the hands-off toolkit works** on the Pixel (Android 17), and record results in FINDINGS:
    - screenshot: `adb exec-out screencap -p > shot.png`, then view it
    - UI driving: `adb shell input tap/swipe/keyevent`, and `adb shell uiautomator dump` to find elements
-   - Bluetooth toggle: `adb shell cmd bluetooth_manager disable` / `enable`. Do the headphones reconnect on their own afterwards? (Unverified on Android 16; may need a different command.)
+   - Bluetooth toggle: `adb shell cmd bluetooth_manager disable` / `enable`. Do the headphones reconnect on their own afterwards? (Unverified on Android 17; may need a different command.)
    - reboot: `adb reboot`, then `adb wait-for-device`; time until `adb devices` is back
    - Do the headphones stay on while idle on the desk, or auto-off after a while? Note the time.
 8. **Git:** `git init`. `.gitignore` covering the standard Android entries, `local.properties`, `*.jks`, `*.keystore`, `reference/`, `.claude/settings.local.json`, `build/`, `.gradle/`, `*.png` in the repo root (scratch screenshots). First commit with `CLAUDE.md` and `PLAN.md`.
@@ -131,17 +133,28 @@ Baris then installs the recommended VS Code extensions when VS Code offers them.
 Goal: answer the unknowns in CLAUDE.md before building anything real. Everything here runs with the desk setup only.
 
 Build:
-- Gradle project with `:bmap` and `:app`, minSdk 31, target 36, Compose, Material 3.
+- Gradle project with `:bmap` and `:app`, minSdk 31, compileSdk/targetSdk 37, Compose, Material 3.
 - `:bmap`: frame codec + streaming frame parser with unit tests (partial frames, multiple frames per chunk, zero-length payloads, garbage).
-- `:app`: a throwaway debug path, driven from Claude Code. Either an Activity with intent extras or an instrumented test, whichever is easier to script. It must: connect via a chosen path (SDP / reflection), log every frame in/out to logcat (hex, ms timestamps), send arbitrary hex, run a burst of N GETs back-to-back.
-- Fill in the VS Code tasks' `<applicationId>` now that it exists.
+- `:app`: a throwaway debug path, driven from Claude Code. Either an Activity with intent extras or an instrumented test, whichever is easier to script. It must: connect via a chosen path (SDP / reflection), log every frame in/out to logcat (hex, ms timestamps), send arbitrary hex, run a burst of N GETs back-to-back. The RFCOMM read loop treats `read() == -1` as a disconnect, as well as `IOException`.
+- Debug entry activity sets `FLAG_KEEP_SCREEN_ON`, `setShowWhenLocked(true)`, `setTurnScreenOn(true)`. Debug builds only.
+- Check the VS Code "Install & launch" task's applicationId (set in S0) matches the debug build.
+- Fixtures are redacted before committing (see the public-repo rule in CLAUDE.md), with the redactions listed in the fixtures README.
+
+Screen checks (F6):
+- With the debug activity in front for 7+ min, the screen stays on despite the 5-min policy cap.
+- With the phone locked, `am start` brings the debug activity up over the lock screen, and screencap and input still work.
 
 Experiments (all hands-off; ask Baris to uninstall Quiet Rebellion or force-stop it with adb first):
+0. Keep-awake, run before experiment 5. The headphones sleep after 10 min idle off-head (S0 FINDINGS).
+   - a. BMAP heartbeat: GET battery every 60 s. Still connected at 12 min?
+   - b. If not: silent audio from a debug-only foreground service. Still connected at 12 min?
+   - c. Once they've slept: does a Bluetooth toggle or a connect attempt wake them, or is a physical touch needed?
+   - d. GET [1.4] (StandbyTimer, auto-off timer per bosectl NOTES.md). Read only, never write.
 1. Connect via SDP. Then reflection. Which works, and which channel does SDP land on?
 2. Greeting: what arrives in the first 2 s after connect, untouched?
 3. Latency: send GET battery with no delay. Time to reply? Run 20 times, record min/median/max.
 4. Burst: 10 GETs back-to-back with no gap. All answered and in order? If not, find the smallest gap that works.
-5. Passive listen: connect, send nothing for 10 minutes, record any unsolicited frames. Then change mode and ANC via the protocol from a *second* connection attempt or via timed writes, and see whether the device echoes anything extra.
+5. Passive listen: connect, send nothing for 8 minutes (or longer under whichever keep-awake method works), record any unsolicited frames. Then change mode and ANC via the protocol from a *second* connection attempt or via timed writes, and see whether the device echoes anything extra.
 6. Firmware: GET 0.5. Run GET on every address in the feature map and save the raw payloads into `:bmap` test fixtures.
 7. Toggle phone Bluetooth off/on: does the socket die cleanly, and how long until the headphones reconnect?
 
@@ -172,6 +185,7 @@ Hands-off device run: none. Pure library.
   - map any unsolicited frames into state
   - light polling of current mode + 31.10 + battery while the UI or notification is visible, behind a flag so it can be dialled down or switched off after H1
 - Auto-reconnect with backoff when the socket drops. Clean stop when the headphones disconnect from the phone.
+- Headphones going to sleep is a normal disconnect, not an error: the service goes quiet and reconnects when they wake.
 - Detect `com.bose.bosemusic` installed: state flag for the UI warning.
 - Notification: name, battery, mode; actions for next favourite mode and ANC toggle.
 
@@ -243,8 +257,9 @@ Hands-off device run: add the tile programmatically if possible (else defer addi
 - The association dialog needs one tap on the phone. If it can't be driven via adb input, it's the one allowed interruption in M6: ask once, batched.
 
 Hands-off device run:
-- `adb reboot`, never open the app: headphones reconnect → service up within ~10 s (logcat).
+- `adb shell am kill <pkg>` (process death; never force-stop, a force-stopped app isn't woken by the system), then Bluetooth toggle off/on, never open the app: headphones reconnect → service up within ~10 s (logcat).
 - Bluetooth toggle off: notification gone. On: back.
+- Reboot auto-connect is not hands-off on this phone (USB debugging prompt + PIN after boot, S0 FINDINGS). It moves to H2.
 
 ## M7: Release prep
 
@@ -260,6 +275,7 @@ Hands-off device run:
 - Install the release build.
 - Custom modes by ear; headphone button cycles favourites; QS tile.
 - Real auto-connect: headphones off overnight, on in the morning, app never opened.
+- Reboot auto-connect (moved from M6): reboot the phone, unlock, never open the app: headphones reconnect → service up within ~10 s.
 - Then use it as the daily driver for a week. Note annoyances; they become v1.1.
 
 ---

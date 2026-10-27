@@ -24,11 +24,12 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 - Don't install software on Baris's PC without saying what and why and getting a yes.
 - No fixed `delay()` to wait for a reply. Replies are awaited by matching frames (see Transport).
 - `:bmap` module has zero Android imports.
+- The repo is public. Never commit serial numbers, full MAC addresses, paired-device names, or anything about the work profile. Fixtures and logs are redacted before committing: MACs keep their format with the bytes replaced, names and serials replaced, and every redaction listed in the fixtures README.
 
 ## Tech stack
 
 - Kotlin, Jetpack Compose, Material 3 with dynamic colour (Material You), single activity.
-- minSdk 31, targetSdk 36, compileSdk 36. (Play requires target 36 for new apps since 31 Aug 2026.)
+- minSdk 31, targetSdk 37, compileSdk 37 (SDK package `platforms;android-37.0`). Baris's phone runs Android 17. (Play requires at least target 36 for new apps since 31 Aug 2026.)
 - Edge-to-edge done properly: `Scaffold` + window insets. Nothing may draw under the status bar.
 - Coroutines + Flow. Plain constructor injection; no DI framework unless the plan says so.
 - Versions pinned in `gradle/libs.versions.toml` (version catalog). When adding or bumping a dependency (AGP, Kotlin, Compose BOM, anything), check the official release page for the current stable version. Never guess version numbers from memory.
@@ -36,6 +37,7 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 ## Dev environment
 
 - Windows, native (not WSL). Claude Code's shell is Git Bash: use forward slashes and `./gradlew` (the sh script), not `gradlew.bat`.
+- Git Bash rewrites arguments starting with `/` into Windows paths, which breaks adb device paths like `/sdcard/...`. `.claude/settings.json` sets `MSYS_NO_PATHCONV=1` for every command. Side effect: pass local paths to Windows programs as `C:/...` or relative, never `/c/...` (see FINDINGS). In Git Bash, `sdkmanager` is `sdkmanager.bat`.
 - Editor is VS Code. No Android Studio. Everything must work from the command line: no reliance on Compose previews, Layout Inspector or the Studio debugger. Use the debug-build demo mode on the phone instead of previews.
 - JDK 21 (Temurin). `JAVA_HOME` set as a user env var.
 - Android SDK, command-line tools only, at `%LOCALAPPDATA%\Android\Sdk` (`$LOCALAPPDATA/Android/Sdk` in Git Bash). `ANDROID_HOME` set; `platform-tools` and `cmdline-tools/latest/bin` on PATH. `local.properties` is gitignored.
@@ -47,7 +49,9 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
   - `./gradlew test lint assembleDebug`: full check, must pass before every PR
   - `./gradlew installDebug`, then `adb shell am start -n <applicationId>/.MainActivity`
   - `adb logcat -c && adb logcat -s BMAP:* AndroidRuntime:E`
-- Hands-off device toolkit (proven in S0, see FINDINGS): `adb exec-out screencap -p` then view the PNG yourself, `adb shell input`, `adb shell uiautomator dump`, instrumented tests via `./gradlew connectedDebugAndroidTest`, `adb shell cmd bluetooth_manager disable|enable`, `adb reboot` + `adb wait-for-device`. Never send power-off or pairing-mode during hands-off runs.
+- Hands-off device toolkit (proven in S0, see FINDINGS): `adb exec-out screencap -p` then view the PNG yourself, `adb shell input`, `adb shell uiautomator dump`, instrumented tests via `./gradlew connectedDebugAndroidTest`, `adb shell cmd bluetooth_manager disable|enable`, `adb shell am kill <pkg>` for process death. Never `force-stop` our own app to simulate process death: a force-stopped app isn't woken by the system. `adb reboot` is not hands-off on this phone (USB debugging prompt + PIN after boot), so reboot tests happen in H2. Never send power-off or pairing-mode during hands-off runs.
+- The screen locks after at most 5 min idle (device policy; "Stay awake" can't be enabled). Debug builds keep our activity on screen and above the lock screen; see Android rules.
+- The headphones sleep after 10 min idle off-head (S0 FINDINGS). Every hands-off run starts by checking they're connected. If they're asleep and nothing remote wakes them, stop and make it one batched ask.
 - Permissions for routine commands live in `.claude/settings.json`. Pushing, uninstalling apps and winget installs still ask Baris.
 
 ## Module layout
@@ -114,7 +118,7 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 - Create/update/delete logic: port `create_profile`, `update_profile`, `delete_profile`, `_find_free_slot` from `connection.py`.
 
 **Known unknowns.** Settle these (in M0 unless noted) and record the answers in FINDINGS:
-1. Which connect path works on Baris's Pixel 10 Pro (Android 16).
+1. Which connect path works on Baris's Pixel 10 Pro (Android 17).
 2. Does the device need a gap between commands? Upstream says "200 ms post-send delay required". Unclear if that's a real device requirement or an artefact of their blocking reads.
 3. Does the device push unsolicited STATUS frames when you press its buttons, change mode on the headphones, or take them off? (Needs Baris's hands, so it's answered in H1, not M0. Until then, code must work whether it does or not.)
 4. What the device sends right after connect (greeting frames).
@@ -123,6 +127,8 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 ## Transport rules
 
 - One reader coroutine per connection, reading the socket continuously into a frame parser. The parser handles partial frames and multiple frames per read.
+- `read() == -1` is a disconnect, same as an `IOException`. Apps targeting Android 17 get `-1` when an RFCOMM connection drops instead of only an exception.
+- Headphones going to sleep is a normal disconnect, not an error. The service goes quiet and reconnects when they wake.
 - Requests go through a queue with one request in flight (Mutex).
 - A request completes on the first frame with the same `(fblock, func)` and op STATUS / RESULT / ERROR. PROCESSING means keep waiting. Timeout 3 s.
 - Drain requests (31.1) collect matching frames until 500 ms of silence.
@@ -137,6 +143,8 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 - Writes are optimistic: update state immediately, send, roll back with an error snackbar if it fails.
 - Writes to 31.10 build the payload from cached state. No read-before-write.
 - Initial load after connect: wait for greeting frames to settle (M0 decides how), then read each feature in turn. Retry a failed read once. The UI must never show a half-loaded screen as if it were real values: show loading per section.
+- Debug builds only: the debug entry activity sets `FLAG_KEEP_SCREEN_ON`, `setShowWhenLocked(true)` and `setTurnScreenOn(true)` so hands-off runs work on a locked phone. Release builds must not have these.
+- The app isn't direct-boot aware. Nothing of ours runs before the first unlock after a reboot.
 - Permissions: `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, plus companion-device permissions from M6. `<queries>` entry for `com.bose.bosemusic`.
 
 ## UX copy

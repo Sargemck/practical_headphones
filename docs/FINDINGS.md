@@ -22,7 +22,7 @@ What we learned from the real phone and headphones. If this file contradicts CLA
 - Phone: Pixel 10 Pro (`blazer`), Android 17 (SDK 37, build CP3A.261005.005, security patch 2026-10-05)
 - Tested: `adb devices -l`, `getprop`, USB device enumeration on Windows
 - Evidence:
-  - `61170DLCH000FA  device product:blazer model:Pixel_10_Pro`
+  - `<serial redacted>  device product:blazer model:Pixel_10_Pro`
   - `ro.build.version.release=17`, `ro.build.version.sdk=37`
   - With USB debugging off, Windows sees the phone only as `USB\VID_18D1&PID_4EE1` (MTP). No Google USB driver was needed once debugging was on.
 - Conclusion:
@@ -45,6 +45,20 @@ What we learned from the real phone and headphones. If this file contradicts CLA
   - Screenshot, UI dump and input injection all work on Android 17.
   - Any adb command with a device path must run with `MSYS_NO_PATHCONV=1` (or use `//sdcard/...`).
 
+### 2026-10-27 M0 prep: `MSYS_NO_PATHCONV=1` for all commands
+
+- Firmware: n/a
+- Phone: n/a (PC only)
+- Tested: with `MSYS_NO_PATHCONV=1`: `./gradlew --version`, `git log`, `sdkmanager.bat --list_installed`, `java -version`, and `jar.exe tf <path>` with three path styles. adb device paths were proven earlier in S0.
+- Evidence:
+  ```
+  jar tf /c/Users/.../gradle-wrapper.jar   -> NoSuchFileException: \c\Users\...\gradle-wrapper.jar
+  jar tf C:/Users/.../gradle-wrapper.jar   -> META-INF/LICENSE
+  jar tf gradle/wrapper/gradle-wrapper.jar -> META-INF/LICENSE
+  ```
+  Gradle, git, sdkmanager and java all ran normally. Setting the variable to any value (even `0`) disables conversion.
+- Conclusion: kept for all commands. The only breakage is POSIX-style absolute paths (`/c/...`) passed to Windows programs, so local paths use `C:/...` or relative form. Limiting it to adb would mean prefixing each adb call, which likely stops those calls matching the permission allowlist.
+
 ### 2026-10-27 S0: apps and Bluetooth state
 
 - Firmware: n/a
@@ -53,24 +67,23 @@ What we learned from the real phone and headphones. If this file contradicts CLA
 - Evidence:
   - Headphones bonded as `Bose QC Ultra 2 HP` (address ends `37:F6`), classic BR/EDR, HEADSET + A2DP profiles. Disconnects logged with ACL reason 19 (remote user terminated).
   - `net.quietrebellion` installed. `com.bose.bosemusic` not installed in user 0.
-  - `pm list packages` also tries user 10 and fails: `SecurityException: Shell does not have permission to access user 10`. There is a second profile (likely Private space or work profile) that adb shell can't list.
+  - `pm list packages` can't list a second user profile (`SecurityException: Shell does not have permission to access user ...`).
   - `stay_on_while_plugged_in=0` ("Stay awake" off at the time of the check)
 - Conclusion:
-  - Bose app is absent from the main profile. Its presence in user 10 is unknown.
+  - Bose app is absent from the main profile. Its presence in the second profile is unknown.
   - Quiet Rebellion must be force-stopped (or uninstalled) before M0 connects, since it holds the same RFCOMM channel.
 
-### 2026-10-27 S0: "Stay awake" blocked by work profile policy
+### 2026-10-27 S0: "Stay awake" blocked by device policy
 
 - Firmware: n/a
 - Phone: Pixel 10 Pro, Android 17 (SDK 37)
-- Tested: Developer options > Stay awake; `adb shell dumpsys device_policy`; `adb shell dumpsys power`
+- Tested: Developer options > Stay awake; `adb shell dumpsys power`
 - Evidence:
-  - Settings shows "Stay awake: Controlled by admin / Blocked by work policy"
-  - Work profile (user 10) owned by Microsoft Intune (`com.microsoft.windowsintune.companyportal`), device not organisation-owned. Parent-profile policy `maximumTimeToUnlock=300000`.
+  - Settings shows "Stay awake: Controlled by admin"
   - `mMaximumScreenOffTimeoutFromDeviceAdmin=300000 (enforced=true)`, `mStayOnWhilePluggedInSetting=0`, `mScreenOffTimeoutSetting=120000`
 - Conclusion:
   - **Conflict with PLAN.md desk setup.** "Stay awake" can't be turned on, by Settings or by adb (PowerManager ignores stay-on while an admin timeout is enforced). The screen locks after at most 5 min idle.
-  - Proposed replacement: debug builds keep the screen on (`FLAG_KEEP_SCREEN_ON`) while our app is in front; desk setup becomes "phone unlocked at the start of a run". Bluetooth toggling, dumpsys, logcat and `uiautomator` reads work with the screen locked.
+  - Approved replacement (S0 review): debug builds keep the screen on and show over the lock screen; desk setup becomes "phone unlocked at the start of a run". M0 verifies both. Bluetooth toggling, dumpsys and logcat work with the screen locked.
 
 ### 2026-10-27 S0: Bluetooth toggle off/on
 
@@ -105,7 +118,7 @@ What we learned from the real phone and headphones. If this file contradicts CLA
   ```
 - Conclusion:
   - A reboot is **not hands-off** on this phone. adb stayed unavailable until the USB debugging prompt was accepted on the phone, and the PIN is needed after every reboot.
-  - Whether the headphones reconnect before the first unlock is **still unknown**: the unlock happened before Bluetooth reconnected. This matters for M6's "reboot, never open the app" test.
+  - Whether the headphones reconnect before the first unlock is unknown, and it doesn't matter: our app isn't direct-boot aware, so nothing of ours runs before the first unlock anyway. The reboot auto-connect test moves to H2; M6 uses `am kill` + Bluetooth toggle instead.
   - One unexplained system_server restart ~15 s after unlock. Seen once; watch for it in later reboots.
 
 ### 2026-10-27 S0: idle auto-off
@@ -120,5 +133,6 @@ What we learned from the real phone and headphones. If this file contradicts CLA
   ```
 - Conclusion:
   - The headphones drop the link exactly 10 min after connecting when idle on the desk. Reason 19 means the headphones ended it, not the phone.
-  - Unknown whether they powered off or went to standby. bosectl has no auto-off feature to read.
+  - Matches Bose's documented behaviour for the 1st-gen QC Ultra Headphones: they sleep when off-head and not in use for 10 min. We assume gen 2 is the same.
+  - bosectl NOTES.md lists `Settings.StandbyTimer [1.4]` (auto-off timer). M0 reads it (GET only). An earlier search here missed it because of a bad file glob.
   - **Constraint for every hands-off run:** a run has under 10 min of idle headphone time, or our app must keep traffic going. M0 experiment 5 (10 min passive listen) will hit this limit and should be shortened or checked against it.
