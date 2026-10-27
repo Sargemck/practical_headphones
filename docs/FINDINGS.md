@@ -59,6 +59,66 @@ What we learned from the real phone and headphones. If this file contradicts CLA
   - Bose app is absent from the main profile. Its presence in user 10 is unknown.
   - Quiet Rebellion must be force-stopped (or uninstalled) before M0 connects, since it holds the same RFCOMM channel.
 
-### 2026-10-27 S0: Bluetooth toggle, reboot, idle auto-off
+### 2026-10-27 S0: "Stay awake" blocked by work profile policy
 
-Pending. Needs the desk setup with headphones powered on and connected.
+- Firmware: n/a
+- Phone: Pixel 10 Pro, Android 17 (SDK 37)
+- Tested: Developer options > Stay awake; `adb shell dumpsys device_policy`; `adb shell dumpsys power`
+- Evidence:
+  - Settings shows "Stay awake: Controlled by admin / Blocked by work policy"
+  - Work profile (user 10) owned by Microsoft Intune (`com.microsoft.windowsintune.companyportal`), device not organisation-owned. Parent-profile policy `maximumTimeToUnlock=300000`.
+  - `mMaximumScreenOffTimeoutFromDeviceAdmin=300000 (enforced=true)`, `mStayOnWhilePluggedInSetting=0`, `mScreenOffTimeoutSetting=120000`
+- Conclusion:
+  - **Conflict with PLAN.md desk setup.** "Stay awake" can't be turned on, by Settings or by adb (PowerManager ignores stay-on while an admin timeout is enforced). The screen locks after at most 5 min idle.
+  - Proposed replacement: debug builds keep the screen on (`FLAG_KEEP_SCREEN_ON`) while our app is in front; desk setup becomes "phone unlocked at the start of a run". Bluetooth toggling, dumpsys, logcat and `uiautomator` reads work with the screen locked.
+
+### 2026-10-27 S0: Bluetooth toggle off/on
+
+- Firmware: n/a
+- Phone: Pixel 10 Pro, Android 17 (SDK 37)
+- Tested: headphones connected (A2DP + HFP), Quiet Rebellion force-stopped. `adb shell cmd bluetooth_manager disable`, wait until `settings get global bluetooth_on` = 0, wait 5 s, `enable`, then poll the A2DP state machine for the headphones in `dumpsys bluetooth_manager` every ~0.5 s.
+- Evidence:
+  ```
+  disable: Success      bt off after 0.7s
+  enable: Success       bt on after 0.3s
+  t+0.7s a2dp=Connecting
+  t+8.7s a2dp=Connected
+  ```
+- Conclusion: `cmd bluetooth_manager disable|enable` works on Android 17 without root. The phone reconnects the headphones on its own about 9 s after Bluetooth comes back.
+- Note: before the reboot below, the `dumpsys bluetooth_manager` event log printed timestamps 1 h ahead of `date` and logcat. After the reboot they matched. Likely a stale UTC offset from before the 25 Oct clock change (phone timezone Europe/Dublin). Use logcat or our own timestamps for timing.
+
+### 2026-10-27 S0: reboot
+
+- Firmware: n/a
+- Phone: Pixel 10 Pro, Android 17 (SDK 37)
+- Tested: `adb reboot` at 01:14:05 (PC clock; phone clock is 1.7 s behind). Timeline from `adb logcat -b events` and `-b crash`.
+- Evidence (phone clock):
+  ```
+  01:14:27.9  boot_progress_start
+  01:14:38.6  boot_progress_enable_screen        (~35 s after reboot)
+  01:14:39.8  UsbDebuggingActivity shown         ("Allow USB debugging?" asked again)
+  01:14:52.1  keyguardGoingAway, user 0 unlocking (Baris entered PIN)
+  01:15:07.4  DeadSystemException in many apps    (system_server died and restarted; root-cause logs rotated out)
+  01:15:08.1  boot_progress_start (second time)
+  01:15:20.5  A2DP Connected for the headphones
+  adb answered again ~63 s after the reboot command
+  ```
+- Conclusion:
+  - A reboot is **not hands-off** on this phone. adb stayed unavailable until the USB debugging prompt was accepted on the phone, and the PIN is needed after every reboot.
+  - Whether the headphones reconnect before the first unlock is **still unknown**: the unlock happened before Bluetooth reconnected. This matters for M6's "reboot, never open the app" test.
+  - One unexplained system_server restart ~15 s after unlock. Seen once; watch for it in later reboots.
+
+### 2026-10-27 S0: idle auto-off
+
+- Firmware: n/a
+- Phone: Pixel 10 Pro, Android 17 (SDK 37)
+- Tested: headphones on the desk, not worn, no audio playing, nothing sent to them. A2DP state polled every 30 s from `dumpsys bluetooth_manager`.
+- Evidence:
+  ```
+  01:15:20.226 [..37:F6] aclStateChangeCallback: State:Connected,    transport:BR/EDR, reason:0
+  01:25:20.573 [..37:F6] aclStateChangeCallback: State:Disconnected, transport:BR/EDR, reason:19
+  ```
+- Conclusion:
+  - The headphones drop the link exactly 10 min after connecting when idle on the desk. Reason 19 means the headphones ended it, not the phone.
+  - Unknown whether they powered off or went to standby. bosectl has no auto-off feature to read.
+  - **Constraint for every hands-off run:** a run has under 10 min of idle headphone time, or our app must keep traffic going. M0 experiment 5 (10 min passive listen) will hit this limit and should be shortened or checked against it.
