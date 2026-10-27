@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew *)",
+      "Bash(adb devices *)",
+      "Bash(adb install *)",
+      "Bash(adb logcat *)",
+      "Bash(adb exec-out screencap *)",
+      "Bash(adb shell input *)",
+      "Bash(adb shell uiautomator dump *)",
+      "Bash(adb shell am start *)",
+      "Bash(adb shell am force-stop *)",
+      "Bash(adb shell am instrument *)",
+      "Bash(adb shell cmd bluetooth_manager *)",
+      "Bash(adb wait-for-device *)",
+      "Bash(adb pull *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git switch *)",
+      "Bash(git branch *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr view *)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(adb reboot *)",
+      "Bash(adb uninstall *)",
+      "Bash(adb shell pm *)",
+      "Bash(winget *)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)"
+    ]
+  }
+}
