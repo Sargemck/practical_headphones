@@ -1,0 +1,12 @@
+{
+  "search.exclude": {
+    "**/build": true,
+    "**/.gradle": true,
+    "reference/": true
+  },
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/.gradle/**": true,
+    "**/reference/**": true
+  }
+}

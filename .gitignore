@@ -1,0 +1,35 @@
+# Gradle
+.gradle/
+build/
+.kotlin/
+
+# Android
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Signing
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Logs
+*.log
+
+# Reference clone (read-only, not ours)
+reference/
+
+# Claude Code per-user settings
+.claude/settings.local.json
+
+# Scratch screenshots in the repo root
+/*.png
