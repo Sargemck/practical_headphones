@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "shell": {
+      "executable": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "args": ["-c"]
+    }
+  },
+  "tasks": [
+    {
+      "label": "Unit tests (bmap)",
+      "type": "shell",
+      "command": "./gradlew :bmap:test",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Full check",
+      "type": "shell",
+      "command": "./gradlew test lint assembleDebug",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install & launch",
+      "type": "shell",
+      "command": "./gradlew installDebug && adb shell am start -n io.github.sargemck.practicalheadphones/.MainActivity",
+      "problemMatcher": []
+    },
+    {
+      "label": "Logcat BMAP",
+      "type": "shell",
+      "command": "adb logcat -c && adb logcat -s BMAP:* AndroidRuntime:E",
+      "isBackground": true,
+      "problemMatcher": []
+    }
+  ]
+}
