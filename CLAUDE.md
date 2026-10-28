@@ -87,8 +87,8 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 | Product name | 1.2 | GET / SETGET | GET payload `[flag, utf8...]`, max 31 bytes |
 | EQ | 1.7 | GET / SETGET | GET: 3x `[min,max,current,bandId]`. SETGET `[value(signed), bandId]`, bands 0 bass 1 mid 2 treble, -10..10 |
 | Buttons | 1.9 | GET only | SETGET echoes but is ignored (needs cloud auth). Don't build remapping. |
-| Multipoint | 1.10 | GET / SETGET | |
-| Sidetone (Self Voice) | 1.11 | GET / SETGET | `[persist, level]`, level 0 off 1 high 2 med 3 low |
+| Multipoint | 1.10 | GET / SETGET | GET is a bitfield (fw 10.12.12 sends `07`), 0x02 = enabled. Write semantics unverified: no builder until M2's hardware test |
+| Sidetone (Self Voice) | 1.11 | GET / SETGET | GET `[persist, level, ?]` (fw 10.12.12 sends `01 02 0f`; third byte unverified, probably supported levels). SETGET `[persist, level]`. Level 0 off 1 high 2 med 3 low |
 | Auto play/pause | 1.24 | GET / SETGET | bool |
 | Auto answer | 1.27 | GET / SETGET | bool |
 | Battery | 2.2 | GET | percent |
@@ -101,7 +101,7 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 | All modes | 31.1 | START + drain | returns N x STATUS on 31.6 |
 | Current mode | 31.3 | GET / START `[idx, 0]` | SETGET needs auth; use START |
 | Mode config | 31.6 | STATUS 48 B / SETGET 40 B | see below |
-| Favourites | 31.8 | GET / SETGET | `[total, 0, mask]` |
+| Favourites | 31.8 | GET / SETGET | `[total, maskHi, maskLo]`, bit i = mode i. 16-bit byte order inferred (fw 10.12.12 sends `0b 00 d7`); confirmed in M4 |
 | Audio settings (live) | 31.10 | GET / SETGET | `[cnc, autoCnc, spatial, wind, anc]` |
 
 Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] standby timer (ERROR FuncNotSupp) and [31.4] default mode (no reply).

@@ -195,6 +195,7 @@ Hands-off device run: none. Pure library.
 Hands-off device run:
 - Cold start 10 times in a row (force-stop, launch): everything loaded every time, verified from logcat state dumps.
 - Instrumented hardware test: read all, write each setting, read back, restore. Time from write to confirmed read-back, logged.
+- Multipoint write exploration: SETGET 1.10 with the current raw value (expect no change), then with only bit 0x02 flipped, read back, restore the original. If the meaning isn't clear after that, multipoint is read-only in v1.
 - Bluetooth toggle off/on: service reconnects without the app being opened.
 - Notification actions fired via adb: state changes confirmed by read-back.
 
@@ -243,6 +244,7 @@ Claude Code prepares a numbered checklist before asking. Claude Code watches log
 - Name validation: max 31 UTF-8 bytes, no duplicate of a preset name.
 
 Hands-off device run: create, edit, switch to, delete a test mode; verify via read-back; leave Baris's existing modes untouched (snapshot before, compare after).
+- Favourites byte order: create a test mode in slot ≥ 8, favourite it, read back 31.8 to confirm the 16-bit mask byte order, restore favourites, delete the mode.
 
 ## M5: Quick Settings tile
 
