@@ -307,4 +307,8 @@ Hands-off device run:
 
 - **v2:** Pixel Watch tile (`:wear`), more Bose models via upstream configs, "send device report" button, plain-English error messages.
 - **v3:** context automations (mode by activity / Wi-Fi / location).
+- **Requested by Baris (2026-10-28), not scheduled:** explicit source switching between two devices (e.g. PC and phone), well featured. Example problem: gaming on the PC, a work email notification on the other device takes the audio for 3-5 s. Needs a design spike before any milestone; it conflicts with the "multipoint switching polish" line below, so the reviewer decides scope. Known so far:
+  - Building blocks: paired devices [4.4], device names [4.5], active source [5.1], routing START [4.12] (bosectl: works only while both sources stream).
+  - The interruption case happens exactly while both stream, so "switch back to the locked source" may fit inside the window [4.12] allows. Unverified; needs two sources and Baris, so it's an H-session test.
+  - Phone-side alternatives: a normal app can't turn off the phone's media audio profile for the headphones (system-only API). It can only send the user to the Bluetooth settings screen.
 - **Never:** button remapping (needs cloud auth), firmware updates, multipoint switching polish (protocol only allows a brief window).
