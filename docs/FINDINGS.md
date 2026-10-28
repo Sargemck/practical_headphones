@@ -176,7 +176,7 @@ Common to every entry below unless stated:
 
 ### 2026-10-28 M0 E6: every feature address (fixtures)
 
-- Tested: GET on each feature-map address, GET 4.5 with the first MAC from 4.4, START 31.1 with drain. Redacted fixtures in `bmap/src/test/resources/fixtures/qc-ultra2/fw-10.12.12/`.
+- Tested: GET on each feature-map address, GET 4.5 with the first MAC from 4.4, START 31.1 with drain. Redacted fixtures in `bmap/src/testFixtures/resources/fixtures/qc-ultra2/fw-10.12.12/` (moved from `src/test` in M1).
 - Evidence (payloads; names and MACs redacted):
 
   ```text
