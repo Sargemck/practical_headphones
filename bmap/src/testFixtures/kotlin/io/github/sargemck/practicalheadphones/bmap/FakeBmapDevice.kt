@@ -193,7 +193,7 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
 
     private fun setget(address: Address, p: ByteArray): BmapFrame =
         when (address) {
-            QcUltra2.audioSettingsWrite -> when {
+            QcUltra2.Write.audioSettings.address -> when {
                 p.size != 5 -> error(address, LENGTH)
                 p[1].toInt() != 0 -> error(address, ErrorCodes.RUNTIME)
                 else -> status(address, p.also { payloads[address] = it })

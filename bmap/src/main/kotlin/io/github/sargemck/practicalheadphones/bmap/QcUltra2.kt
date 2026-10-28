@@ -3,8 +3,26 @@ package io.github.sargemck.practicalheadphones.bmap
 /** A feature read with GET. */
 class ReadFeature<T>(val address: Address, val parse: (ByteArray) -> T)
 
-/** A feature written with SETGET. */
-class WriteFeature<T>(val address: Address, val build: (T) -> ByteArray)
+/**
+ * A feature written with SETGET. [parseReply] reads the device's reply into what it applied.
+ * It is set only where the reply shape is verified on the device; otherwise the reply comes
+ * back raw ([WriteReply.Raw]).
+ */
+class WriteFeature<T, R>(
+    val address: Address,
+    val build: (T) -> ByteArray,
+    val parseReply: ((ByteArray) -> R)? = null,
+)
+
+/** What a SETGET reply said the device applied. */
+sealed interface WriteReply<out R> {
+    data class Applied<R>(val value: R) : WriteReply<R>
+
+    /** Reply shape not verified yet, so it isn't parsed. */
+    class Raw(val frame: BmapFrame) : WriteReply<Nothing> {
+        override fun toString(): String = "Raw($frame)"
+    }
+}
 
 /**
  * Bose QC Ultra Headphones (2nd Gen), codename "wolverine", PID 0x4082, as data.
@@ -27,13 +45,17 @@ object QcUltra2 {
     val favourites = ReadFeature(Address(31, 8), Parsers::favourites)
     val audioSettings = ReadFeature(Address(31, 10), Parsers::audioSettings)
 
+    /** Reply types are the read parser's. Replies are parsed only once their shape is verified (M2 hardware test). */
     object Write {
-        val productName = WriteFeature(Address(1, 2), Builders::productName)
-        val eqBand = WriteFeature(Address(1, 7), Builders::eqBand)
-        val selfVoice = WriteFeature(Address(1, 11), Builders::selfVoice)
-        val autoPlayPause = WriteFeature(Address(1, 24), Builders::bool)
-        val autoAnswer = WriteFeature(Address(1, 27), Builders::bool)
-        val favourites = WriteFeature(Address(31, 8), Builders::favourites)
+        val productName = WriteFeature<String, String>(Address(1, 2), Builders::productName)
+        val eqBand = WriteFeature<EqBandSetting, List<EqBand>>(Address(1, 7), Builders::eqBand)
+        val selfVoice = WriteFeature<SelfVoiceLevel, SelfVoice>(Address(1, 11), Builders::selfVoice)
+        val autoPlayPause = WriteFeature<Boolean, Boolean>(Address(1, 24), Builders::bool)
+        val autoAnswer = WriteFeature<Boolean, Boolean>(Address(1, 27), Builders::bool)
+        val favourites = WriteFeature<Favourites, Favourites>(Address(31, 8), Builders::favourites)
+
+        /** Reply is STATUS with the applied values, same shape as GET (M0 E5). */
+        val audioSettings = WriteFeature(Address(31, 10), Builders::audioSettings, Parsers::audioSettings)
     }
 
     /** GET with a MAC payload. */
@@ -52,9 +74,6 @@ object QcUltra2 {
     val selectMode = Address(31, 3)
 
     val modeConfig = Address(31, 6)
-
-    /** SETGET `[cnc, autoCnc, spatial, wind, anc]`, verified in M0 E5. */
-    val audioSettingsWrite = Address(31, 10)
 
     /** Bose presets, locked by the firmware (Runtime error 8 on write). */
     val presetSlots = 0..3

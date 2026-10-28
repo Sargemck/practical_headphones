@@ -181,21 +181,28 @@ Hands-off device run: none. Pure library.
 - Android `RfcommTransport` implementing `FrameTransport`, with the connect strategy M0 proved.
 - Foreground service (`connectedDevice`) owning connection + `HeadphoneRepository` with `StateFlow<HeadphoneState>`.
 - Initial load starts right after connect (M0: no greeting frames), with per-section loading state and retry. **Fixes bug 1** (first connect doesn't load modes/spatial).
-- Optimistic writes from cached state, no read-before-write. **Fixes bug 2** (ANC lag, app's share of it).
+- Optimistic writes from cached state, no read-before-write. **Fixes bug 2** (ANC lag, app's share of it). Reconcile against what `Headphones.write()` returns: the applied value where the reply is parsed, otherwise the raw reply.
+- Only offer modes from `allModes()` that are configured (name not blank or `None`). Never call `selectMode` on an empty slot.
 - After a mode switch (START 31.3) succeeds, re-read 31.10 before updating state: a mode switch changes the live audio settings (M0 E5). Otherwise the slider and spatial buttons go stale.
 - Live updates, built both ways because we won't know until H1 which one the device needs:
   - map any unsolicited frames into state
   - light polling of current mode + 31.10 + battery while the UI or notification is visible, behind a flag so it can be dialled down or switched off after H1
 - Automatic connects only on a fresh ACL/A2DP connected event. No retry loops or polling connects: a connect attempt wakes sleeping headphones (M0). Clean stop when the headphones disconnect from the phone.
-- Contention: if our socket drops while Android still reports the headphones connected, assume another app (Bose app, Quiet Rebellion) took over. Don't auto-reconnect; state shows "Another app is using your headphones" with a Reconnect button. Avoids two apps kicking each other off in a loop (M0: one connection at a time).
+- Contention: if our socket drops while Android still reports the headphones connected, assume another app (Bose app, Quiet Rebellion) took over. Don't auto-reconnect; state shows "Another app is using your headphones" with a Reconnect button. Avoids two apps kicking each other off in a loop (M0: one connection at a time). Exception: a `Closed(RemoteClosed)` within ~5 s after `powerOff()` or `pairingMode()` is expected; state shows "Headphones off" or "Pairing mode" instead.
 - Headphones going to sleep is a normal disconnect, not an error: the service goes quiet and reconnects when they wake.
 - Detect `com.bose.bosemusic` installed: state flag for the UI warning.
 - Notification: name, battery, mode; actions for next favourite mode and ANC toggle.
 
 Hands-off device run:
 - Cold start 10 times in a row (force-stop, launch): everything loaded every time, verified from logcat state dumps.
-- Instrumented hardware test: read all, write each setting, read back, restore. Time from write to confirmed read-back, logged.
-- Multipoint write exploration: SETGET 1.10 with the current raw value (expect no change), then with only bit 0x02 flipped, read back, restore the original. If the meaning isn't clear after that, multipoint is read-only in v1.
+- Instrumented hardware test: read all, then each write below as read → write → read back → restore, all logged with the reply frame and the time from write to confirmed read-back:
+  - 1.2 product name: a test name, then the original
+  - 1.7 EQ: one band at a time
+  - 1.11 Self Voice
+  - 1.24 auto play/pause, 1.27 auto answer
+  - 31.8 favourites: the current value written back unchanged
+  - 1.10 multipoint exploration: SETGET with the current raw value (expect no change), then with only bit 0x02 flipped, read back, restore the original. If the meaning isn't clear after that, multipoint is read-only in v1.
+- Not in M2: 31.6 (M4), 4.8 pairing and 7.4 power off (H1 only, never in hands-off runs).
 - Bluetooth toggle off/on: service reconnects without the app being opened.
 - Notification actions fired via adb: state changes confirmed by read-back.
 
