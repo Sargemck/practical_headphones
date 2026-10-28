@@ -58,6 +58,13 @@ object QcUltra2 {
         val audioSettings = WriteFeature(Address(31, 10), Builders::audioSettings, Parsers::audioSettings)
     }
 
+    /** Writes whose meaning isn't known yet. Only the M2 hardware test may use them. */
+    @HardwareTestOnly
+    object Experimental {
+        /** Raw [1.10] bitfield. Fw 10.12.12 reads `07`; only bit 0x02 (enabled) is understood. */
+        val multipointRaw = WriteFeature<Int, Multipoint>(Address(1, 10), { byteArrayOf(it.toByte()) })
+    }
+
     /** GET with a MAC payload. */
     val deviceInfo = Address(4, 5)
 
