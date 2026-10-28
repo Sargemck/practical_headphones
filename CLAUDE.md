@@ -100,10 +100,11 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 | Power off | 7.4 | START `[0]` | |
 | All modes | 31.1 | START + drain | returns N x STATUS on 31.6 |
 | Current mode | 31.3 | GET / START `[idx, 0]` | SETGET needs auth; use START |
-| Default mode | 31.4 | GET | |
 | Mode config | 31.6 | STATUS 48 B / SETGET 40 B | see below |
 | Favourites | 31.8 | GET / SETGET | `[total, 0, mask]` |
 | Audio settings (live) | 31.10 | GET / SETGET | `[cnc, autoCnc, spatial, wind, anc]` |
+
+Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] standby timer (ERROR FuncNotSupp) and [31.4] default mode (no reply).
 
 **Audio settings [31.10]**
 - `cnc` 0..10 is inverted: 0 = max noise cancelling, 10 = most ambient. UI shows strength = `10 - cnc` with left = let world in, right = block.
@@ -118,11 +119,11 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 - Create/update/delete logic: port `create_profile`, `update_profile`, `delete_profile`, `_find_free_slot` from `connection.py`.
 
 **Known unknowns.** Settle these (in M0 unless noted) and record the answers in FINDINGS:
-1. Which connect path works on Baris's Pixel 10 Pro (Android 17).
-2. Does the device need a gap between commands? Upstream says "200 ms post-send delay required". Unclear if that's a real device requirement or an artefact of their blocking reads.
+1. Settled in M0: connect path (see Android rules and FINDINGS).
+2. Settled in M0: no gap between commands is needed; replies can arrive out of order.
 3. Does the device push unsolicited STATUS frames when you press its buttons, change mode on the headphones, or take them off? (Needs Baris's hands, so it's answered in H1, not M0. Until then, code must work whether it does or not.)
-4. What the device sends right after connect (greeting frames).
-5. Whether firmware 10.12.12 (LE Audio / Auracast beta) changed anything vs the 8.2.20 notes.
+4. Settled in M0: nothing arrives on channel 2 after connect until we ask.
+5. Settled in M0: firmware 10.12.12 differs from the 8.2.20 notes in [1.4] and [31.4] (see feature map).
 
 ## Transport rules
 
@@ -133,16 +134,18 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 - A request completes on the first frame with the same `(fblock, func)` and op STATUS / RESULT / ERROR. PROCESSING means keep waiting. Timeout 3 s.
 - Drain requests (31.1) collect matching frames until 500 ms of silence.
 - Every frame that doesn't complete the in-flight request goes to an `unsolicited` SharedFlow, never to a caller.
-- If M0 shows the device needs spacing between commands, add a measured minimum gap in the queue. Not a sleep before reading.
-- Timeout or desync: retry once, then drop the socket and reconnect with backoff.
+- No spacing between commands (M0: 10 back-to-back GETs all answered). Replies can arrive out of order, so never assume reply order matches send order; matching stays by `(fblock, func)`.
+- An address that times out while other requests are answered is unsupported (e.g. [31.4]), not an error. It doesn't trigger a reconnect.
+- Timeout or desync on a supported address: retry once, then drop the socket. Reconnect follows the connect rule in Android rules.
 
 ## Android rules
 
 - Connect: try public `createInsecureRfcommSocketToServiceRecord(BMAP_UUID)` first. If that fails or lands on the wrong channel, fall back to reflection `createInsecureRfcommSocket(2)`. The reflection method is a non-SDK API: currently allowed at every target SDK, but it could be blocked later. Log which path was used.
+- Never initiate an RFCOMM connect unless Android reports the headphones' ACL/A2DP as connected. No retry loops, no polling connects. A connect attempt wakes sleeping headphones (M0 FINDINGS), so retrying would keep them awake in a bag and drain the battery. Reconnect is driven only by system connection events.
 - A foreground service (type `connectedDevice`) owns the connection and a `HeadphoneRepository` exposing `StateFlow<HeadphoneState>`. UI, tile and notification only observe and send intents.
 - Writes are optimistic: update state immediately, send, roll back with an error snackbar if it fails.
 - Writes to 31.10 build the payload from cached state. No read-before-write.
-- Initial load after connect: wait for greeting frames to settle (M0 decides how), then read each feature in turn. Retry a failed read once. The UI must never show a half-loaded screen as if it were real values: show loading per section.
+- Initial load starts immediately after connect (no greeting frames, M0), reading each feature in turn. Retry a failed read once. The UI must never show a half-loaded screen as if it were real values: show loading per section.
 - Debug builds only: the debug entry activity sets `FLAG_KEEP_SCREEN_ON`, `setShowWhenLocked(true)` and `setTurnScreenOn(true)` so hands-off runs work on a locked phone. Release builds must not have these.
 - The app isn't direct-boot aware. Nothing of ours runs before the first unlock after a reboot.
 - Permissions: `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, plus companion-device permissions from M6. `<queries>` entry for `com.bose.bosemusic`.

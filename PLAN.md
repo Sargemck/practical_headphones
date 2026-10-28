@@ -157,6 +157,7 @@ Experiments (all hands-off; ask Baris to uninstall Quiet Rebellion or force-stop
 5. Passive listen: connect, send nothing for 8 minutes (or longer under whichever keep-awake method works), record any unsolicited frames. Probe a second RFCOMM socket once while the first is open and record the error (expected to be refused). Then timed writes on the single connection: snapshot mode and 31.10, change mode (START 31.3) and ANC (SETGET 31.10), log every frame for 3 s after each write's reply (anything beyond the matching reply is unsolicited), restore, confirm by read-back. If the restore fails, stop and report.
 6. Firmware: GET 0.5. Run GET on every address in the feature map and save the raw payloads into `:bmap` test fixtures.
 7. Toggle phone Bluetooth off/on: does the socket die cleanly, and how long until the headphones reconnect?
+8. Public connect path (added after F9): `fetchUuidsWithSdp()`, log the headphones' UUIDs, SDP-connect to each vendor UUID and SPP once, record what each lands on and whether it answers BMAP. If one does, it becomes the primary path and reflection the fallback.
 
 Not tested here: whether the headphones push frames when their *physical* buttons are used or when worn/removed. That needs Baris, so it moves to H1. M2 is designed to work either way.
 
@@ -179,12 +180,12 @@ Hands-off device run: none. Pure library.
 
 - Android `RfcommTransport` implementing `FrameTransport`, with the connect strategy M0 proved.
 - Foreground service (`connectedDevice`) owning connection + `HeadphoneRepository` with `StateFlow<HeadphoneState>`.
-- Initial load sequence per M0 greeting findings, with per-section loading state and retry. **Fixes bug 1** (first connect doesn't load modes/spatial).
+- Initial load starts right after connect (M0: no greeting frames), with per-section loading state and retry. **Fixes bug 1** (first connect doesn't load modes/spatial).
 - Optimistic writes from cached state, no read-before-write. **Fixes bug 2** (ANC lag, app's share of it).
 - Live updates, built both ways because we won't know until H1 which one the device needs:
   - map any unsolicited frames into state
   - light polling of current mode + 31.10 + battery while the UI or notification is visible, behind a flag so it can be dialled down or switched off after H1
-- Auto-reconnect with backoff when the socket drops. Clean stop when the headphones disconnect from the phone.
+- Reconnect when the socket drops only while Android reports the headphones connected; otherwise wait for the system connection event. No retry loops or polling connects: a connect attempt wakes sleeping headphones (M0). Clean stop when the headphones disconnect from the phone.
 - Headphones going to sleep is a normal disconnect, not an error: the service goes quiet and reconnects when they wake.
 - Detect `com.bose.bosemusic` installed: state flag for the UI warning.
 - Notification: name, battery, mode; actions for next favourite mode and ANC toggle.
