@@ -59,18 +59,6 @@ class SpikeActivity : ComponentActivity() {
 
     private fun handle(intent: Intent) {
         val extras = intent.extras?.takeIf { it.containsKey("cmd") } ?: return
-        // Silent audio starts from here so it's always started while this activity is in front.
-        if (extras.getString("cmd") == "audio") {
-            val service = Intent(this, SilentAudioService::class.java)
-            if (extras.getInt("on", 1) == 1) {
-                SpikeLog.log("CMD audio on")
-                startForegroundService(service)
-            } else {
-                SpikeLog.log("CMD audio off")
-                stopService(service)
-            }
-            return
-        }
         SpikeSession.handle(this, extras)
     }
 }

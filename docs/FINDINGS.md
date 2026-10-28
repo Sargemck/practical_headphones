@@ -234,7 +234,7 @@ Common to every entry below unless stated:
        reflection connect: CONNECT failed after 5134 ms (IOException), but ACL Connected 11:24:36
   ```
 
-  Also seen at session start: ACL connected 10:57:35 and dropped 20 s later (reason 19), cause unknown.
+  Also seen at session start: ACL connected 10:57:35 and dropped 20 s later (reason 19), cause unknown. Watch item: log it if it recurs.
 - Conclusion:
   - A BMAP heartbeat does not keep the headphones awake; they drop the link about 10.5 min after it comes up.
   - A connect attempt from our app wakes sleeping headphones (the first attempt may fail while doing so). A Bluetooth toggle doesn't. Hands-off runs can wake them without Baris.
@@ -245,6 +245,7 @@ Common to every entry below unless stated:
 - Tested: fresh link (ACL Connected 11:36:32 after E7), SPP socket open with no heartbeat, `SilentAudioService` playing zeros from the front spike activity.
 - Evidence: `mIsPlaying: true`, audio output `bt_a2dp` = the headphones. Still connected at 11:38:31. Stopped at 11:39 (2.5 min in) because Baris needed the phone.
 - Conclusion: **no result.** Needs a 12+ min run from a fresh link. Not blocking: hands-off runs can wake the headphones by connecting (E0c), and in real use they're worn or playing.
+- Dropped after M0 review (2026-10-28): a heartbeat doesn't prevent sleep (E0a), a connect wakes them (E0c), and the real app must not keep the headphones awake. `SilentAudioService` and its permissions are deleted.
 
 ### 2026-10-28 M0 S1/S2: screen with the device policy
 
