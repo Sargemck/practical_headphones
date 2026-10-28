@@ -7,7 +7,7 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 ## Working agreement
 
 - Work from `PLAN.md`, one milestone at a time. Never start the next milestone until Baris says the current PR is approved.
-- At the start of a milestone, enter plan mode, write the plan, and stop. Baris takes it to the reviewer. Code after approval.
+- At the start of a milestone, enter plan mode, write the plan, and stop. Commit it as `docs/plans/<milestone>.md` on the milestone branch and push; the reviewer reads plans and PRs from GitHub. Code after approval.
 - One branch per milestone: `m<N>-<slug>`. Open a PR into `main`. Never commit to `main` directly.
 - PR description: what changed, how it was tested (unit + on-device), screenshots for UI, open questions, anything that differs from the plan and why.
 - Small commits with clear messages.
@@ -24,11 +24,12 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 - Don't install software on Baris's PC without saying what and why and getting a yes.
 - No fixed `delay()` to wait for a reply. Replies are awaited by matching frames (see Transport).
 - `:bmap` module has zero Android imports.
+- The repo is public. Never commit serial numbers, full MAC addresses, paired-device names, or anything about the work profile. Fixtures and logs are redacted before committing: MACs keep their format with the bytes replaced, names and serials replaced, and every redaction listed in the fixtures README.
 
 ## Tech stack
 
 - Kotlin, Jetpack Compose, Material 3 with dynamic colour (Material You), single activity.
-- minSdk 31, targetSdk 36, compileSdk 36. (Play requires target 36 for new apps since 31 Aug 2026.)
+- minSdk 31, targetSdk 37, compileSdk 37 (SDK package `platforms;android-37.0`). Baris's phone runs Android 17. (Play requires at least target 36 for new apps since 31 Aug 2026.)
 - Edge-to-edge done properly: `Scaffold` + window insets. Nothing may draw under the status bar.
 - Coroutines + Flow. Plain constructor injection; no DI framework unless the plan says so.
 - Versions pinned in `gradle/libs.versions.toml` (version catalog). When adding or bumping a dependency (AGP, Kotlin, Compose BOM, anything), check the official release page for the current stable version. Never guess version numbers from memory.
@@ -36,6 +37,7 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 ## Dev environment
 
 - Windows, native (not WSL). Claude Code's shell is Git Bash: use forward slashes and `./gradlew` (the sh script), not `gradlew.bat`.
+- Git Bash rewrites arguments starting with `/` into Windows paths, which breaks adb device paths like `/sdcard/...`. `.claude/settings.json` sets `MSYS_NO_PATHCONV=1` for every command. Side effect: pass local paths to Windows programs as `C:/...` or relative, never `/c/...` (see FINDINGS). In Git Bash, `sdkmanager` is `sdkmanager.bat`.
 - Editor is VS Code. No Android Studio. Everything must work from the command line: no reliance on Compose previews, Layout Inspector or the Studio debugger. Use the debug-build demo mode on the phone instead of previews.
 - JDK 21 (Temurin). `JAVA_HOME` set as a user env var.
 - Android SDK, command-line tools only, at `%LOCALAPPDATA%\Android\Sdk` (`$LOCALAPPDATA/Android/Sdk` in Git Bash). `ANDROID_HOME` set; `platform-tools` and `cmdline-tools/latest/bin` on PATH. `local.properties` is gitignored.
@@ -47,7 +49,9 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
   - `./gradlew test lint assembleDebug`: full check, must pass before every PR
   - `./gradlew installDebug`, then `adb shell am start -n <applicationId>/.MainActivity`
   - `adb logcat -c && adb logcat -s BMAP:* AndroidRuntime:E`
-- Hands-off device toolkit (proven in S0, see FINDINGS): `adb exec-out screencap -p` then view the PNG yourself, `adb shell input`, `adb shell uiautomator dump`, instrumented tests via `./gradlew connectedDebugAndroidTest`, `adb shell cmd bluetooth_manager disable|enable`, `adb reboot` + `adb wait-for-device`. Never send power-off or pairing-mode during hands-off runs.
+- Hands-off device toolkit (proven in S0, see FINDINGS): `adb exec-out screencap -p` then view the PNG yourself, `adb shell input`, `adb shell uiautomator dump`, instrumented tests via `./gradlew connectedDebugAndroidTest`, `adb shell cmd bluetooth_manager disable|enable`, `adb shell am kill <pkg>` for process death. Never `force-stop` our own app to simulate process death: a force-stopped app isn't woken by the system. `adb reboot` is not hands-off on this phone (USB debugging prompt + PIN after boot), so reboot tests happen in H2. Never send power-off or pairing-mode during hands-off runs.
+- The screen locks after at most 5 min idle (device policy; "Stay awake" can't be enabled). Debug builds keep our activity on screen and above the lock screen; see Android rules.
+- The headphones sleep after 10 min idle off-head (S0 FINDINGS). Every hands-off run starts by checking they're connected. If they're asleep and nothing remote wakes them, stop and make it one batched ask.
 - Permissions for routine commands live in `.claude/settings.json`. Pushing, uninstalling apps and winget installs still ask Baris.
 
 ## Module layout
@@ -67,8 +71,8 @@ reference/bosectl   gitignored clone of github.com/aaronsb/bosectl. Read-only re
 Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `parsers.py`, `connection.py`. Port the logic from the Python; ignore the Rust/C++.
 
 **Link**
-- Classic Bluetooth RFCOMM, channel 2. BMAP service UUID `00000000-deca-fade-deca-deafdecacaff`.
-- The Bose app holds the same channel. If package `com.bose.bosemusic` is installed and running, we can't connect.
+- Classic Bluetooth RFCOMM, channel 2, reached via SDP with the SPP UUID (see Android rules). The advertised BMAP service UUID `00000000-deca-fade-deca-deafdecacaff` resolves to a different, non-BMAP channel on fw 10.12.12.
+- One BMAP connection at a time: a new connection is accepted and the previous one is dropped (M0). The Bose app or Quiet Rebellion connecting cuts us off with `read() == -1`, and our connect cuts them off. Don't reconnect in a loop against another app; follow the connect rule.
 
 **Frame:** `[fblock][func][flags][len][payload...]`
 - flags = `deviceId<<6 | port<<4 | op` (we send 0 for deviceId/port). len is 1 byte.
@@ -96,10 +100,11 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 | Power off | 7.4 | START `[0]` | |
 | All modes | 31.1 | START + drain | returns N x STATUS on 31.6 |
 | Current mode | 31.3 | GET / START `[idx, 0]` | SETGET needs auth; use START |
-| Default mode | 31.4 | GET | |
 | Mode config | 31.6 | STATUS 48 B / SETGET 40 B | see below |
 | Favourites | 31.8 | GET / SETGET | `[total, 0, mask]` |
 | Audio settings (live) | 31.10 | GET / SETGET | `[cnc, autoCnc, spatial, wind, anc]` |
+
+Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] standby timer (ERROR FuncNotSupp) and [31.4] default mode (no reply).
 
 **Audio settings [31.10]**
 - `cnc` 0..10 is inverted: 0 = max noise cancelling, 10 = most ambient. UI shows strength = `10 - cnc` with left = let world in, right = block.
@@ -114,29 +119,35 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 - Create/update/delete logic: port `create_profile`, `update_profile`, `delete_profile`, `_find_free_slot` from `connection.py`.
 
 **Known unknowns.** Settle these (in M0 unless noted) and record the answers in FINDINGS:
-1. Which connect path works on Baris's Pixel 10 Pro (Android 16).
-2. Does the device need a gap between commands? Upstream says "200 ms post-send delay required". Unclear if that's a real device requirement or an artefact of their blocking reads.
+1. Settled in M0: connect path (see Android rules and FINDINGS).
+2. Settled in M0: no gap between commands is needed; replies can arrive out of order.
 3. Does the device push unsolicited STATUS frames when you press its buttons, change mode on the headphones, or take them off? (Needs Baris's hands, so it's answered in H1, not M0. Until then, code must work whether it does or not.)
-4. What the device sends right after connect (greeting frames).
-5. Whether firmware 10.12.12 (LE Audio / Auracast beta) changed anything vs the 8.2.20 notes.
+4. Settled in M0: nothing arrives on channel 2 after connect until we ask.
+5. Settled in M0: firmware 10.12.12 differs from the 8.2.20 notes in [1.4] and [31.4] (see feature map).
 
 ## Transport rules
 
 - One reader coroutine per connection, reading the socket continuously into a frame parser. The parser handles partial frames and multiple frames per read.
+- `read() == -1` is a disconnect, same as an `IOException`. Apps targeting Android 17 get `-1` when an RFCOMM connection drops instead of only an exception.
+- Headphones going to sleep is a normal disconnect, not an error. The service goes quiet and reconnects when they wake.
 - Requests go through a queue with one request in flight (Mutex).
 - A request completes on the first frame with the same `(fblock, func)` and op STATUS / RESULT / ERROR. PROCESSING means keep waiting. Timeout 3 s.
 - Drain requests (31.1) collect matching frames until 500 ms of silence.
 - Every frame that doesn't complete the in-flight request goes to an `unsolicited` SharedFlow, never to a caller.
-- If M0 shows the device needs spacing between commands, add a measured minimum gap in the queue. Not a sleep before reading.
-- Timeout or desync: retry once, then drop the socket and reconnect with backoff.
+- No spacing between commands (M0: 10 back-to-back GETs all answered). Replies can arrive out of order, so never assume reply order matches send order; matching stays by `(fblock, func)`.
+- An address that times out while other requests are answered is unsupported (e.g. [31.4]), not an error. It doesn't trigger a reconnect.
+- Timeout or desync on a supported address: retry once, then drop the socket. Reconnect follows the connect rule in Android rules.
 
 ## Android rules
 
-- Connect: try public `createInsecureRfcommSocketToServiceRecord(BMAP_UUID)` first. If that fails or lands on the wrong channel, fall back to reflection `createInsecureRfcommSocket(2)`. The reflection method is a non-SDK API: currently allowed at every target SDK, but it could be blocked later. Log which path was used.
+- Connect (M0 FINDINGS E1/E8): primary is public `createInsecureRfcommSocketToServiceRecord(SPP_UUID)` with the standard SPP UUID `00001101-0000-1000-8000-00805f9b34fb`, which reaches BMAP. Never SDP-connect with the BMAP UUID: on fw 10.12.12 it lands on a beacon channel that never answers. A connect counts only once a BMAP request is answered. If SPP fails or doesn't answer, fall back to reflection `createInsecureRfcommSocket(2)` (non-SDK API: allowed at every target SDK today, could be blocked later). Log which path was used.
+- Never initiate an RFCOMM connect unless Android reports the headphones' ACL/A2DP as connected. No retry loops, no polling connects. A connect attempt wakes sleeping headphones (M0 FINDINGS), so retrying would keep them awake in a bag and drain the battery. Reconnect is driven only by system connection events.
 - A foreground service (type `connectedDevice`) owns the connection and a `HeadphoneRepository` exposing `StateFlow<HeadphoneState>`. UI, tile and notification only observe and send intents.
 - Writes are optimistic: update state immediately, send, roll back with an error snackbar if it fails.
 - Writes to 31.10 build the payload from cached state. No read-before-write.
-- Initial load after connect: wait for greeting frames to settle (M0 decides how), then read each feature in turn. Retry a failed read once. The UI must never show a half-loaded screen as if it were real values: show loading per section.
+- Initial load starts immediately after connect (no greeting frames, M0), reading each feature in turn. Retry a failed read once. The UI must never show a half-loaded screen as if it were real values: show loading per section.
+- Debug builds only: the debug entry activity sets `FLAG_KEEP_SCREEN_ON`, `setShowWhenLocked(true)` and `setTurnScreenOn(true)` so hands-off runs work on a locked phone. Release builds must not have these.
+- The app isn't direct-boot aware. Nothing of ours runs before the first unlock after a reboot.
 - Permissions: `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, plus companion-device permissions from M6. `<queries>` entry for `com.bose.bosemusic`.
 
 ## UX copy

@@ -1,5 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "MSYS_NO_PATHCONV": "1"
+  },
   "permissions": {
     "allow": [
       "Bash(./gradlew *)",
@@ -12,6 +15,10 @@
       "Bash(adb shell am start *)",
       "Bash(adb shell am force-stop *)",
       "Bash(adb shell am instrument *)",
+      "Bash(adb shell am kill *)",
+      "Bash(adb shell dumpsys *)",
+      "Bash(adb shell getprop *)",
+      "Bash(adb shell settings get *)",
       "Bash(adb shell cmd bluetooth_manager *)",
       "Bash(adb wait-for-device *)",
       "Bash(adb pull *)",

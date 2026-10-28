@@ -1,0 +1,2 @@
+> 1f 04 01 00
+# no reply within 3 s
