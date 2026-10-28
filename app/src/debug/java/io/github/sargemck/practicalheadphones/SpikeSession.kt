@@ -159,7 +159,7 @@ object SpikeSession {
                         break
                     }
                     val at = SpikeLog.nowMs()
-                    log("RAW< $n bytes")
+                    log("RAW< $n bytes: ${Hex.format(buf.copyOf(n))}")
                     for (event in parser.feed(buf.copyOf(n))) {
                         when (event) {
                             is FrameEvent.Frame -> {
