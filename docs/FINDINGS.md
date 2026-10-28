@@ -136,3 +136,161 @@ What we learned from the real phone and headphones. If this file contradicts CLA
   - Matches Bose's documented behaviour for the 1st-gen QC Ultra Headphones: they sleep when off-head and not in use for 10 min. We assume gen 2 is the same.
   - bosectl NOTES.md lists `Settings.StandbyTimer [1.4]` (auto-off timer). M0 reads it (GET only). An earlier search here missed it because of a bad file glob.
   - **Constraint for every hands-off run:** a run has under 10 min of idle headphone time, or our app must keep traffic going. M0 experiment 5 (10 min passive listen) will hit this limit and should be shortened or checked against it.
+
+---
+
+## M0 device session, 2026-10-28
+
+Common to every entry below unless stated:
+
+- Firmware: `10.12.12+ga927c9a` (GET 0.5)
+- Phone: Pixel 10 Pro, Android 17 (SDK 37, build CP3A.261005.005), app targets SDK 37
+- Tool: debug-only `SpikeActivity` / `SpikeSession`, driven by `adb shell am start ... --es cmd <name>`. Logs tag `BMAP` with `elapsedRealtime` ms. Full `logcat -v threadtime` kept outside the repo.
+- Headphones on the desk, not worn, nothing playing (except E0b).
+
+### 2026-10-28 M0 E1/E8: connect paths
+
+- Tested: 3 x each of SDP with the BMAP UUID and reflection `createInsecureRfcommSocket(2)`, each followed by GET battery. Then E8: listed the headphones' UUIDs and SDP-connected to SPP and each vendor UUID (4 x for SPP).
+- Evidence:
+
+  ```text
+  sdp  uuid=00000000-deca-fade-deca-deafdecacaff  connect 128-489 ms  GET 2.2 -> TIMEOUT 3/3
+       receives unasked: ff 55 02 00 ee 10   (6 bytes, about once per second)
+  reflect channel 2                            connect 95-237 ms   GET 2.2 -> STATUS 50 ff ff 00 in 104-149 ms, 3/3
+  sdp  uuid=00001101-0000-1000-8000-00805f9b34fb (SPP)  connect 108-1886 ms  BMAP replies in 40-84 ms, 6/6 sessions
+  sdp  uuid=9b26d8c0-a8ed-440b-95b0-c4714a518bcc  connects, silent, GET -> TIMEOUT
+  sdp  346d5c4b-..., 77265d41-..., 88b0ee3c-..., df21fe2c-...  connect refused (IOException)
+  BluetoothSocket.getPort() -> NoSuchMethodException (hidden API blocked), so channels can't be read
+  ```
+
+  Cached UUIDs: BMAP UUID, `1101` SPP, `110b` A2DP sink, `110e` AVRCP, `111e` HFP, `180f` battery (LE), five vendor UUIDs. `fetchUuidsWithSdp()` returned true but no `ACTION_UUID` arrived within 15 s. HFP/HSP were not probed (the phone holds those links).
+- Conclusion:
+  - **Conflict with CLAUDE.md (fixed in this PR):** SDP with the BMAP UUID lands on a non-BMAP channel. bosectl NOTES lists RFCOMM channel 14 as a status beacon sending `ff55 02...`; this matches. `ff 55` is also the start of an Apple iAP1 packet (reviewer's inference, not verified).
+  - **SDP with the standard SPP UUID reaches BMAP** through the public API. This becomes the primary path; reflection on channel 2 is the fallback. A connect is only trusted once a BMAP request is answered.
+
+### 2026-10-28 M0 E2: greeting
+
+- Tested: connected on channel 2 (reflection) and SPP, sent nothing for 1 to 3.4 s.
+- Evidence: no bytes at all on channel 2 / SPP before the first request, in every session. The BMAP-UUID channel starts the `ff 55 02 00 ee 10` beacon immediately.
+- Conclusion: no greeting. The initial load can start right after connect.
+
+### 2026-10-28 M0 E6: every feature address (fixtures)
+
+- Tested: GET on each feature-map address, GET 4.5 with the first MAC from 4.4, START 31.1 with drain. Redacted fixtures in `bmap/src/test/resources/fixtures/qc-ultra2/fw-10.12.12/`.
+- Evidence (payloads; names and MACs redacted):
+
+  ```text
+  0.5   STATUS "10.12.12+ga927c9a"
+  1.2   STATUS 00 + 18-byte name
+  1.4   ERROR 04 (FuncNotSupp)                 <- standby timer
+  1.7   STATUS f6 0a 00 00 | f6 0a 00 01 | f6 0a 00 02   (EQ flat)
+  1.9   STATUS 80 09 0e 00 09 40 02 00 00 00 00
+  1.10  STATUS 07      1.11 STATUS 01 02 0f     1.24 STATUS 00     1.27 STATUS 00
+  2.2   STATUS 50 ff ff 00 (80 %)
+  4.4   STATUS 01 + 5 x 6-byte MAC (31 bytes)
+  4.5   STATUS <6-byte MAC> 03 02 03 <name>
+  5.1   STATUS 00 0f 00 (no active source)
+  31.3  STATUS 02      31.8 STATUS 0b 00 d7     31.10 STATUS 00 00 02 00 01
+  31.4  no reply within 3 s, and none later    <- default mode
+  31.1 START drain, 19 frames in ~750 ms:
+        31.1 PROCESSING, 31.0 STATUS "1.0.0", 31.2 STATUS 07 04 07 00 00 00 7f 02, 31.3 STATUS 02,
+        11 x 31.6 STATUS (48 B each: presets 0-3, 4 custom modes, 3 empty slots named "None"),
+        31.8 STATUS, 31.10 STATUS, 31.11 STATUS 1f ff ff ff ff, then 31.1 RESULT
+  ```
+
+- Conclusion:
+  - [1.4] and [31.4] are unsupported on this firmware; removed from the CLAUDE.md feature map.
+  - The 31.1 drain starts with PROCESSING and ends with `31.1 RESULT`, so M1 can end the drain on RESULT instead of only on 500 ms of silence.
+  - 31.11 is new (not in the 8.2.20 notes); meaning unknown.
+  - No serial number appears in any captured frame.
+
+### 2026-10-28 M0 E3/E4: latency and burst
+
+- Tested: 20 x GET 2.2 one at a time; 10 GETs to different addresses written back to back with no gap.
+- Evidence:
+
+  ```text
+  latency n=20: min 19.8  median 27.6  max 118.7 ms
+  burst sent: 2.2, 0.5, 1.7, 1.10, 1.11, 1.24, 1.27, 31.3, 31.10, 5.1   (all written within 5 ms)
+  burst got:  0.5, 2.2, 1.7, 1.11, 1.10, 1.24, 1.27, 31.3, 31.10, 5.1   10/10, no errors, last at 151 ms
+  read chunks: [0.5] | [2.2 + 1.7] | [1.11 + 1.10] | [1.24 + 1.27] | [31.3] | [31.10] | [5.1]
+  ```
+
+  On a link idle for 60 s, a single GET took 38 to 471 ms (E0a heartbeats).
+- Conclusion: the upstream "200 ms post-send delay" isn't a device requirement. No spacing needed. Replies can come back out of order (two swaps out of 10), and several replies can share one read.
+
+### 2026-10-28 M0 E0: idle sleep and waking
+
+- Tested:
+  - E0a: fresh link (Bluetooth toggle, then our connect), GET battery every 60 s, spike screen in front.
+  - E0c: with the headphones asleep, a Bluetooth toggle, then RFCOMM connect attempts.
+- Evidence:
+
+  ```text
+  E0a  ACL Connected 11:09:47.372; heartbeats #1-#10 all answered
+       ACL Disconnected 11:20:17.395 reason 19 (10 min 30 s); our socket: DISCONNECT read() == -1
+  E0c  Bluetooth toggle: A2DP stays Disconnected for 2+ min
+       SDP connect: ACL Connected 11:06:28, socket up in 4289 ms
+       reflection connect: CONNECT failed after 5134 ms (IOException), but ACL Connected 11:24:36
+  ```
+
+  Also seen at session start: ACL connected 10:57:35 and dropped 20 s later (reason 19), cause unknown.
+- Conclusion:
+  - A BMAP heartbeat does not keep the headphones awake; they drop the link about 10.5 min after it comes up.
+  - A connect attempt from our app wakes sleeping headphones (the first attempt may fail while doing so). A Bluetooth toggle doesn't. Hands-off runs can wake them without Baris.
+  - Design rule added to CLAUDE.md: never connect unless Android reports the headphones connected, so the app doesn't keep waking them in a bag.
+
+### 2026-10-28 M0 E0b: silent audio (incomplete)
+
+- Tested: fresh link (ACL Connected 11:36:32 after E7), SPP socket open with no heartbeat, `SilentAudioService` playing zeros from the front spike activity.
+- Evidence: `mIsPlaying: true`, audio output `bt_a2dp` = the headphones. Still connected at 11:38:31. Stopped at 11:39 (2.5 min in) because Baris needed the phone.
+- Conclusion: **no result.** Needs a 12+ min run from a fresh link. Not blocking: hands-off runs can wake the headphones by connecting (E0c), and in real use they're worn or playing.
+
+### 2026-10-28 M0 S1/S2: screen with the device policy
+
+- Tested: locked the phone (`KEYCODE_SLEEP`, keyguard showing), `am start` the spike activity, screencap, `input swipe`. During E0a, `mWakefulness` checked every 30 s for 13.5 min.
+- Evidence: after `am start`: `mWakefulness=Awake`, `topResumedActivity=...SpikeActivity`, `isKeyguardShowing=true` (shown over it); screencap readable; swipe delivered. E0a: `mWakefulness=Awake` at every check up to 818 s.
+- Conclusion: `setShowWhenLocked` + `setTurnScreenOn` + `FLAG_KEEP_SCREEN_ON` beat the 5-min policy cap. Hands-off runs work on a locked phone.
+
+### 2026-10-28 M0 E5: second connection, writes, passive listen
+
+- Tested:
+  - one second SPP socket while the first was open
+  - snapshot, START 31.3 to mode 0, SETGET 31.10 with ANC off, restore both, read back; 3 s watch after each write. Run straight after a fresh connect (before the listen) so the 10.5 min sleep couldn't interrupt the restore.
+  - 8 min with nothing sent
+- Evidence:
+
+  ```text
+  PROBE2 second socket CONNECTED in 356 ms; first socket DISCONNECT read() == -1 24 ms later
+  snapshot  mode=02  31.10=00 00 02 00 01
+  START 31.3 [00 00]          -> RESULT 00 in 102 ms; 31.10 now 00 00 00 00 01 (spatial off)
+  SETGET 31.10 00 00 00 00 00 -> STATUS 00 00 00 00 00 in 136 ms
+  START 31.3 [02 00]          -> RESULT 02 in 81 ms
+  SETGET 31.10 00 00 02 00 01 -> STATUS 00 00 02 00 01 in 132 ms
+  read-back mode=02 31.10=00 00 02 00 01  -> RESTORE OK
+  frames in the 3 s after each of the 4 writes: 0, 0, 0, 0
+  passive listen 8 min: 0 frames
+  ```
+
+- Conclusion:
+  - Only one BMAP connection at a time: a new connection is accepted and the old one is dropped. Another app connecting (Bose app, Quiet Rebellion) cuts ours off, and ours cuts theirs.
+  - No unsolicited frames after protocol writes or while idle. Whether physical buttons or wearing them push frames is still H1.
+  - START 31.3 replies RESULT `[idx]`; SETGET 31.10 replies STATUS with the applied values.
+
+### 2026-10-28 M0 E7: Bluetooth toggle with the socket open
+
+- Tested: SPP socket open, headphones awake, `cmd bluetooth_manager disable`, 3 s, `enable`, then our connect once A2DP was back.
+- Evidence:
+
+  ```text
+  bt off after 0.5 s; socket: DISCONNECT read() == -1 (no IOException)
+  after enable: A2DP Connecting at +1.3 s, Connected at +9.3 s
+  our SPP connect 108 ms; GET 2.2 answered in 424 ms
+  ```
+
+- Conclusion: on target 37 a dropped link shows up as `read() == -1`, as the Android 17 notes say. Awake headphones come back by themselves in about 9 s; connecting after A2DP is back works first time.
+
+### 2026-10-28 M0: session notes
+
+- `adb shell am start ... --es hex "02 02 01 00"` passes only `02`: adb shell splits on spaces. Pass hex without spaces.
+- At 11:28:06 the USB connection reset (adb transport id 2 -> 3, the logcat stream ended with exit 255). Cause unknown. adb came straight back; the phone's 16 MB log buffer covered the gap.
