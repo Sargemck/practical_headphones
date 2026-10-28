@@ -40,8 +40,7 @@ class BmapFrame(
 
     val flags: Int get() = (deviceId shl 6) or (port shl 4) or op.code
 
-    /** `fblock.func`, e.g. `31.10`. */
-    val address: String get() = "$fblock.$func"
+    val address: Address get() = Address(fblock, func)
 
     fun encode(): ByteArray =
         byteArrayOf(fblock.toByte(), func.toByte(), flags.toByte(), payload.size.toByte()) + payload
