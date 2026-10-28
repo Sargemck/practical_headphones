@@ -22,7 +22,7 @@ Rules:
 - Headphones on the desk, powered on, connected to the phone
 - Bose app and Quiet Rebellion not running
 
-Every hands-off run starts by checking the headphones are connected. They sleep after 10 min idle off-head. If they're asleep and nothing remote wakes them, that's one batched ask to Baris.
+Every hands-off run starts by checking the headphones are connected. They drop the link about 10.5 min after it comes up when idle off-head. If they're asleep, Claude Code wakes them with a spike connect (debug tooling only). Only if that fails is it one batched ask to Baris.
 
 Definition of done for every milestone:
 - `./gradlew test lint assembleDebug` green
@@ -169,7 +169,7 @@ Review gate: reviewer reads FINDINGS and adjusts the plan before M1 starts.
 
 - Device config for QC Ultra 2 as data (addresses + parser/builder refs), structured so other models are just another config later.
 - Parsers/builders for every row in the feature map, including mode config 48 B STATUS / 40 B SETGET, favourites, EQ, sidetone, source, paired devices.
-- `BmapConnection` over an abstract `FrameTransport` interface. Request/reply matching, PROCESSING handling, drain, timeout, retry-once, unsolicited flow.
+- `BmapConnection` over an abstract `FrameTransport` interface. Request/reply matching, PROCESSING handling, drain (31.1 ends on `31.1 RESULT`, 500 ms silence as fallback), timeout, retry-once, unsolicited flow.
 - Profile logic ported from upstream: create, update, rename, delete, find free slot, refuse preset names, refuse presets 0–3.
 - `FakeBmapDevice` in testFixtures: answers like the real device using M0 fixtures; can emit unsolicited frames; can inject errors and delays.
 - Tests: every parser against real M0 fixtures; connection tests against the fake (stray frames, desync, timeout, PROCESSING then STATUS, drain).
@@ -182,10 +182,12 @@ Hands-off device run: none. Pure library.
 - Foreground service (`connectedDevice`) owning connection + `HeadphoneRepository` with `StateFlow<HeadphoneState>`.
 - Initial load starts right after connect (M0: no greeting frames), with per-section loading state and retry. **Fixes bug 1** (first connect doesn't load modes/spatial).
 - Optimistic writes from cached state, no read-before-write. **Fixes bug 2** (ANC lag, app's share of it).
+- After a mode switch (START 31.3) succeeds, re-read 31.10 before updating state: a mode switch changes the live audio settings (M0 E5). Otherwise the slider and spatial buttons go stale.
 - Live updates, built both ways because we won't know until H1 which one the device needs:
   - map any unsolicited frames into state
   - light polling of current mode + 31.10 + battery while the UI or notification is visible, behind a flag so it can be dialled down or switched off after H1
-- Reconnect when the socket drops only while Android reports the headphones connected; otherwise wait for the system connection event. No retry loops or polling connects: a connect attempt wakes sleeping headphones (M0). Clean stop when the headphones disconnect from the phone.
+- Automatic connects only on a fresh ACL/A2DP connected event. No retry loops or polling connects: a connect attempt wakes sleeping headphones (M0). Clean stop when the headphones disconnect from the phone.
+- Contention: if our socket drops while Android still reports the headphones connected, assume another app (Bose app, Quiet Rebellion) took over. Don't auto-reconnect; state shows "Another app is using your headphones" with a Reconnect button. Avoids two apps kicking each other off in a loop (M0: one connection at a time).
 - Headphones going to sleep is a normal disconnect, not an error: the service goes quiet and reconnects when they wake.
 - Detect `com.bose.bosemusic` installed: state flag for the UI warning.
 - Notification: name, battery, mode; actions for next favourite mode and ANC toggle.
@@ -193,6 +195,7 @@ Hands-off device run: none. Pure library.
 Hands-off device run:
 - Cold start 10 times in a row (force-stop, launch): everything loaded every time, verified from logcat state dumps.
 - Instrumented hardware test: read all, write each setting, read back, restore. Time from write to confirmed read-back, logged.
+- Multipoint write exploration: SETGET 1.10 with the current raw value (expect no change), then with only bit 0x02 flipped, read back, restore the original. If the meaning isn't clear after that, multipoint is read-only in v1.
 - Bluetooth toggle off/on: service reconnects without the app being opened.
 - Notification actions fired via adb: state changes confirmed by read-back.
 
@@ -241,6 +244,7 @@ Claude Code prepares a numbered checklist before asking. Claude Code watches log
 - Name validation: max 31 UTF-8 bytes, no duplicate of a preset name.
 
 Hands-off device run: create, edit, switch to, delete a test mode; verify via read-back; leave Baris's existing modes untouched (snapshot before, compare after).
+- Favourites byte order: create a test mode in slot ≥ 8, favourite it, read back 31.8 to confirm the 16-bit mask byte order, restore favourites, delete the mode.
 
 ## M5: Quick Settings tile
 

@@ -51,7 +51,7 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
   - `adb logcat -c && adb logcat -s BMAP:* AndroidRuntime:E`
 - Hands-off device toolkit (proven in S0, see FINDINGS): `adb exec-out screencap -p` then view the PNG yourself, `adb shell input`, `adb shell uiautomator dump`, instrumented tests via `./gradlew connectedDebugAndroidTest`, `adb shell cmd bluetooth_manager disable|enable`, `adb shell am kill <pkg>` for process death. Never `force-stop` our own app to simulate process death: a force-stopped app isn't woken by the system. `adb reboot` is not hands-off on this phone (USB debugging prompt + PIN after boot), so reboot tests happen in H2. Never send power-off or pairing-mode during hands-off runs.
 - The screen locks after at most 5 min idle (device policy; "Stay awake" can't be enabled). Debug builds keep our activity on screen and above the lock screen; see Android rules.
-- The headphones sleep after 10 min idle off-head (S0 FINDINGS). Every hands-off run starts by checking they're connected. If they're asleep and nothing remote wakes them, stop and make it one batched ask.
+- The headphones drop the link about 10.5 min after it comes up when idle off-head, even with BMAP traffic (M0 FINDINGS). Every hands-off run starts by checking they're connected. If they're asleep, wake them with a spike connect (a connect attempt wakes them, M0 E0c). That's allowed for debug tooling only; the app itself follows the connect rule in Android rules. Only if the spike connect fails is it one batched ask.
 - Permissions for routine commands live in `.claude/settings.json`. Pushing, uninstalling apps and winget installs still ask Baris.
 
 ## Module layout
@@ -72,7 +72,7 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 
 **Link**
 - Classic Bluetooth RFCOMM, channel 2, reached via SDP with the SPP UUID (see Android rules). The advertised BMAP service UUID `00000000-deca-fade-deca-deafdecacaff` resolves to a different, non-BMAP channel on fw 10.12.12.
-- One BMAP connection at a time: a new connection is accepted and the previous one is dropped (M0). The Bose app or Quiet Rebellion connecting cuts us off with `read() == -1`, and our connect cuts them off. Don't reconnect in a loop against another app; follow the connect rule.
+- One BMAP connection at a time: a new connection is accepted and the previous one is dropped (M0). The Bose app or Quiet Rebellion connecting cuts us off with `read() == -1`, and our connect cuts them off. Don't fight another app for the link; see the contention rule in Android rules.
 
 **Frame:** `[fblock][func][flags][len][payload...]`
 - flags = `deviceId<<6 | port<<4 | op` (we send 0 for deviceId/port). len is 1 byte.
@@ -87,8 +87,8 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 | Product name | 1.2 | GET / SETGET | GET payload `[flag, utf8...]`, max 31 bytes |
 | EQ | 1.7 | GET / SETGET | GET: 3x `[min,max,current,bandId]`. SETGET `[value(signed), bandId]`, bands 0 bass 1 mid 2 treble, -10..10 |
 | Buttons | 1.9 | GET only | SETGET echoes but is ignored (needs cloud auth). Don't build remapping. |
-| Multipoint | 1.10 | GET / SETGET | |
-| Sidetone (Self Voice) | 1.11 | GET / SETGET | `[persist, level]`, level 0 off 1 high 2 med 3 low |
+| Multipoint | 1.10 | GET / SETGET | GET is a bitfield (fw 10.12.12 sends `07`), 0x02 = enabled. Write semantics unverified: no builder until M2's hardware test |
+| Sidetone (Self Voice) | 1.11 | GET / SETGET | GET `[persist, level, ?]` (fw 10.12.12 sends `01 02 0f`; third byte unverified, probably supported levels). SETGET `[persist, level]`. Level 0 off 1 high 2 med 3 low |
 | Auto play/pause | 1.24 | GET / SETGET | bool |
 | Auto answer | 1.27 | GET / SETGET | bool |
 | Battery | 2.2 | GET | percent |
@@ -101,7 +101,7 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 | All modes | 31.1 | START + drain | returns N x STATUS on 31.6 |
 | Current mode | 31.3 | GET / START `[idx, 0]` | SETGET needs auth; use START |
 | Mode config | 31.6 | STATUS 48 B / SETGET 40 B | see below |
-| Favourites | 31.8 | GET / SETGET | `[total, 0, mask]` |
+| Favourites | 31.8 | GET / SETGET | `[total, maskHi, maskLo]`, bit i = mode i. 16-bit byte order inferred (fw 10.12.12 sends `0b 00 d7`); confirmed in M4 |
 | Audio settings (live) | 31.10 | GET / SETGET | `[cnc, autoCnc, spatial, wind, anc]` |
 
 Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] standby timer (ERROR FuncNotSupp) and [31.4] default mode (no reply).
@@ -111,6 +111,7 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 - `autoCnc` must be 0. Firmware rejects 1 with Runtime error 8.
 - `spatial` 0 off, 1 fixed-to-room, 2 fixed-to-head.
 - Wind Block masks CNC: with wind on, CNC level changes are inaudible. Explain this in the UI.
+- A mode switch changes the live audio settings (M0 E5: spatial went from 02 to 00 on START 31.3). After START 31.3 succeeds, re-read 31.10 before updating state. Never keep the cached 31.10 across a mode switch.
 
 **Mode config [31.6]**
 - STATUS (48 B): `[0]` idx, `[1:3]` voice prompt, `[3]` editable, `[4]` configured, `[5]` ?, `[6:38]` name (UTF-8, NUL padded), `[38:42]` ?, `[42]` cnc, `[43]` autoCnc, `[44]` spatial, `[45]` wind, `[46]` ?, `[47]` anc.
@@ -132,7 +133,7 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 - Headphones going to sleep is a normal disconnect, not an error. The service goes quiet and reconnects when they wake.
 - Requests go through a queue with one request in flight (Mutex).
 - A request completes on the first frame with the same `(fblock, func)` and op STATUS / RESULT / ERROR. PROCESSING means keep waiting. Timeout 3 s.
-- Drain requests (31.1) collect matching frames until 500 ms of silence.
+- Drain requests (31.1) collect the 31.6 STATUS frames and complete on `31.1 RESULT` (M0 E6). 500 ms of silence is only a fallback end.
 - Every frame that doesn't complete the in-flight request goes to an `unsolicited` SharedFlow, never to a caller.
 - No spacing between commands (M0: 10 back-to-back GETs all answered). Replies can arrive out of order, so never assume reply order matches send order; matching stays by `(fblock, func)`.
 - An address that times out while other requests are answered is unsupported (e.g. [31.4]), not an error. It doesn't trigger a reconnect.
@@ -141,7 +142,8 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 ## Android rules
 
 - Connect (M0 FINDINGS E1/E8): primary is public `createInsecureRfcommSocketToServiceRecord(SPP_UUID)` with the standard SPP UUID `00001101-0000-1000-8000-00805f9b34fb`, which reaches BMAP. Never SDP-connect with the BMAP UUID: on fw 10.12.12 it lands on a beacon channel that never answers. A connect counts only once a BMAP request is answered. If SPP fails or doesn't answer, fall back to reflection `createInsecureRfcommSocket(2)` (non-SDK API: allowed at every target SDK today, could be blocked later). Log which path was used.
-- Never initiate an RFCOMM connect unless Android reports the headphones' ACL/A2DP as connected. No retry loops, no polling connects. A connect attempt wakes sleeping headphones (M0 FINDINGS), so retrying would keep them awake in a bag and drain the battery. Reconnect is driven only by system connection events.
+- Never initiate an RFCOMM connect unless Android reports the headphones' ACL/A2DP as connected. No retry loops, no polling connects. A connect attempt wakes sleeping headphones (M0 FINDINGS), so retrying would keep them awake in a bag and drain the battery. Automatic connects happen only on a fresh ACL/A2DP connected event from the system.
+- Contention: if our socket drops (`read() == -1`) while Android still reports the headphones' ACL connected, assume another app took over the link. Don't auto-reconnect. Set a state the UI shows as "Another app is using your headphones" with a Reconnect button. Only a user tap or a fresh connected event connects again.
 - A foreground service (type `connectedDevice`) owns the connection and a `HeadphoneRepository` exposing `StateFlow<HeadphoneState>`. UI, tile and notification only observe and send intents.
 - Writes are optimistic: update state immediately, send, roll back with an error snackbar if it fails.
 - Writes to 31.10 build the payload from cached state. No read-before-write.
