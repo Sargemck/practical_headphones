@@ -34,8 +34,7 @@ class HeadphonesTest {
     @Test
     fun `writes reach the device state`() = runTest {
         val h = rig().headphones
-        val reply = h.write(QcUltra2.Write.autoAnswer, true)
-        assertEquals("[1.27] STATUS 01", (reply as WriteReply.Raw).frame.toString())
+        assertEquals(WriteReply.Applied(true), h.write(QcUltra2.Write.autoAnswer, true))
         assertEquals(true, h.read(QcUltra2.autoAnswer))
         h.write(QcUltra2.Write.autoPlayPause, true)
         assertEquals(true, h.read(QcUltra2.autoPlayPause))

@@ -167,13 +167,12 @@ class HeadphoneRepositoryTest {
     }
 
     @Test
-    fun `unverified write reply is confirmed with one GET`() = runTest {
+    fun `write reply is parsed, with no extra GET`() = runTest {
         val h = connected()
         h.repo.setAutoAnswer(true)
         runCurrent()
         assertEquals(true, h.state.autoAnswer.valueOrNull())
-        val after = h.fake.received.takeLast(2).map { it.address to it.op }
-        assertEquals(listOf(QcUltra2.autoAnswer.address to BmapOp.SETGET, QcUltra2.autoAnswer.address to BmapOp.GET), after)
+        assertEquals(QcUltra2.autoAnswer.address to BmapOp.SETGET, h.fake.received.last().let { it.address to it.op })
     }
 
     @Test

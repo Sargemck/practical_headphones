@@ -45,14 +45,17 @@ object QcUltra2 {
     val favourites = ReadFeature(Address(31, 8), Parsers::favourites)
     val audioSettings = ReadFeature(Address(31, 10), Parsers::audioSettings)
 
-    /** Reply types are the read parser's. Replies are parsed only once their shape is verified (M2 hardware test). */
+    /**
+     * Every SETGET reply is STATUS in the same shape as the GET reply, so it's parsed with the
+     * read parser (31.10 in M0 E5; the rest in the M2 hardware test, fw 10.12.12).
+     */
     object Write {
-        val productName = WriteFeature<String, String>(Address(1, 2), Builders::productName)
-        val eqBand = WriteFeature<EqBandSetting, List<EqBand>>(Address(1, 7), Builders::eqBand)
-        val selfVoice = WriteFeature<SelfVoiceLevel, SelfVoice>(Address(1, 11), Builders::selfVoice)
-        val autoPlayPause = WriteFeature<Boolean, Boolean>(Address(1, 24), Builders::bool)
-        val autoAnswer = WriteFeature<Boolean, Boolean>(Address(1, 27), Builders::bool)
-        val favourites = WriteFeature<Favourites, Favourites>(Address(31, 8), Builders::favourites)
+        val productName = WriteFeature(Address(1, 2), Builders::productName, Parsers::productName)
+        val eqBand = WriteFeature(Address(1, 7), Builders::eqBand, Parsers::eq)
+        val selfVoice = WriteFeature(Address(1, 11), Builders::selfVoice, Parsers::selfVoice)
+        val autoPlayPause = WriteFeature(Address(1, 24), Builders::bool, Parsers::bool)
+        val autoAnswer = WriteFeature(Address(1, 27), Builders::bool, Parsers::bool)
+        val favourites = WriteFeature(Address(31, 8), Builders::favourites, Parsers::favourites)
 
         /** Reply is STATUS with the applied values, same shape as GET (M0 E5). */
         val audioSettings = WriteFeature(Address(31, 10), Builders::audioSettings, Parsers::audioSettings)
@@ -61,8 +64,11 @@ object QcUltra2 {
     /** Writes whose meaning isn't known yet. Only the M2 hardware test may use them. */
     @HardwareTestOnly
     object Experimental {
-        /** Raw [1.10] bitfield. Fw 10.12.12 reads `07`; only bit 0x02 (enabled) is understood. */
-        val multipointRaw = WriteFeature<Int, Multipoint>(Address(1, 10), { byteArrayOf(it.toByte()) })
+        /**
+         * Raw [1.10] bitfield. Fw 10.12.12 reads `07` and ignores a write of `05` (M2 hardware
+         * test: reply and read-back stay `07`), so multipoint is read-only in v1.
+         */
+        val multipointRaw = WriteFeature(Address(1, 10), { v: Int -> byteArrayOf(v.toByte()) }, Parsers::multipoint)
     }
 
     /** GET with a MAC payload. */
