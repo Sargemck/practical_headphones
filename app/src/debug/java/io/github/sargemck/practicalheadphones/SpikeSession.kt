@@ -5,9 +5,14 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothSocket
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.os.ParcelUuid
 import io.github.sargemck.practicalheadphones.SpikeLog.log
 import io.github.sargemck.practicalheadphones.SpikeLog.ms
 import io.github.sargemck.practicalheadphones.bmap.BmapFrame
@@ -16,6 +21,7 @@ import io.github.sargemck.practicalheadphones.bmap.FrameEvent
 import io.github.sargemck.practicalheadphones.bmap.FrameParser
 import io.github.sargemck.practicalheadphones.bmap.Hex
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -84,7 +90,8 @@ object SpikeSession {
 
     private suspend fun run(context: Context, cmd: String, extras: Bundle) {
         when (cmd) {
-            "connect" -> connect(context, extras.getString("path") ?: "reflect")
+            "connect" -> connect(context, extras.getString("path") ?: "reflect", extras.getString("uuid"))
+            "uuids" -> uuids(context)
             "close" -> close()
             "probe2" -> probeSecondSocket(context)
             "send" -> send(Hex.parse(extras.getString("hex").orEmpty()))
@@ -104,8 +111,8 @@ object SpikeSession {
         context.getSystemService(BluetoothManager::class.java).adapter.bondedDevices
             .firstOrNull { it.name?.contains(DEVICE_NAME_MATCH) == true }
 
-    private fun openSocket(device: BluetoothDevice, path: String): BluetoothSocket = when (path) {
-        "sdp" -> device.createInsecureRfcommSocketToServiceRecord(BMAP_UUID)
+    private fun openSocket(device: BluetoothDevice, path: String, uuid: UUID = BMAP_UUID): BluetoothSocket = when (path) {
+        "sdp" -> device.createInsecureRfcommSocketToServiceRecord(uuid)
         "reflect" -> device.javaClass
             .getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
             .invoke(device, BMAP_CHANNEL) as BluetoothSocket
@@ -120,26 +127,28 @@ object SpikeSession {
             "unknown (${e.javaClass.simpleName})"
         }
 
-    private fun connect(context: Context, path: String) {
+    private fun connect(context: Context, path: String, uuidText: String?) {
         if (socket != null) return log("CONNECT skipped: already connected")
         if (context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             return log("CONNECT failed: BLUETOOTH_CONNECT not granted (install with adb install -g)")
         }
         val device = findHeadphones(context) ?: return log("CONNECT failed: no bonded device named *$DEVICE_NAME_MATCH*")
+        val uuid = uuidText?.let(UUID::fromString) ?: BMAP_UUID
+        val label = if (path == "sdp") "path=sdp uuid=$uuid" else "path=$path"
         SpikeLog.clock()
         val start = SpikeLog.nowMs()
         val s = try {
-            openSocket(device, path)
+            openSocket(device, path, uuid)
         } catch (e: Exception) {
-            return log("CONNECT failed to create socket path=$path: $e")
+            return log("CONNECT failed to create socket $label: $e")
         }
         try {
             s.connect()
         } catch (e: IOException) {
             runCatching { s.close() }
-            return log("CONNECT failed path=$path after ${ms(SpikeLog.nowMs() - start)} ms: $e")
+            return log("CONNECT failed $label after ${ms(SpikeLog.nowMs() - start)} ms: $e")
         }
-        log("CONNECTED path=$path device=\"${device.name}\" in ${ms(SpikeLog.nowMs() - start)} ms channel=${channelOf(s)}")
+        log("CONNECTED $label device=\"${device.name}\" in ${ms(SpikeLog.nowMs() - start)} ms channel=${channelOf(s)}")
         socket = s
         lastPath = path
         startReader(s)
@@ -178,6 +187,32 @@ object SpikeSession {
             log("DISCONNECT $reason${if (ours) " (after our close)" else ""}; ${parser.buffered} bytes left in parser")
             if (socket === s) socket = null
             runCatching { s.close() }
+        }
+    }
+
+    /** E8: cached UUIDs, then a fresh SDP query (result arrives as ACTION_UUID). */
+    private suspend fun uuids(context: Context) {
+        val device = findHeadphones(context) ?: return log("UUIDS: no bonded device")
+        log("UUIDS cached: ${device.uuids?.joinToString { it.uuid.toString() } ?: "none"}")
+        val result = CompletableDeferred<List<String>>()
+        val receiver = object : BroadcastReceiver() {
+            @Suppress("DEPRECATION") // typed getters need API 33, minSdk is 31
+            override fun onReceive(c: Context, intent: Intent) {
+                val dev = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                if (dev?.address != device.address) return
+                val list = intent.getParcelableArrayExtra(BluetoothDevice.EXTRA_UUID)
+                result.complete(list?.mapNotNull { (it as? ParcelUuid)?.uuid?.toString() }.orEmpty())
+            }
+        }
+        val filter = IntentFilter(BluetoothDevice.ACTION_UUID)
+        if (Build.VERSION.SDK_INT >= 33) context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        else context.registerReceiver(receiver, filter)
+        try {
+            log("UUIDS fetchUuidsWithSdp() = ${device.fetchUuidsWithSdp()}")
+            val fresh = withTimeoutOrNull(15_000) { result.await() }
+            log("UUIDS fresh: ${fresh?.joinToString() ?: "no ACTION_UUID within 15 s"}")
+        } finally {
+            context.unregisterReceiver(receiver)
         }
     }
 
