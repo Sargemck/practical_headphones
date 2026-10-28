@@ -31,11 +31,15 @@ class ScreenMonitor(private val context: Context, private val onChange: (Boolean
     }
 }
 
-/** System broadcasts only; not exported where the flag exists (API 33+). */
-@SuppressLint("UnspecifiedRegisterReceiverFlag") // Before API 33 there is no flag; system broadcasts only.
-fun Context.registerSystemReceiver(receiver: BroadcastReceiver, filter: IntentFilter) {
+/**
+ * Registers for protected platform broadcasts. Bluetooth's broadcasts come from the Bluetooth
+ * app's uid, not the system uid, so a not-exported receiver never gets them (M2 device run).
+ * Protected broadcasts can't be sent by other apps, so [exported] is safe for them.
+ */
+@SuppressLint("UnspecifiedRegisterReceiverFlag") // Before API 33 there is no flag.
+fun Context.registerSystemReceiver(receiver: BroadcastReceiver, filter: IntentFilter, exported: Boolean = false) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        registerReceiver(receiver, filter, if (exported) Context.RECEIVER_EXPORTED else Context.RECEIVER_NOT_EXPORTED)
     } else {
         registerReceiver(receiver, filter)
     }

@@ -52,7 +52,8 @@ class SystemLinkMonitor(
             addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
             addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)
         }
-        context.registerSystemReceiver(receiver, filter)
+        // Sent by the Bluetooth app, not the system uid: must be exported to arrive.
+        context.registerSystemReceiver(receiver, filter, exported = true)
         queryProfiles()
         publish()
     }
