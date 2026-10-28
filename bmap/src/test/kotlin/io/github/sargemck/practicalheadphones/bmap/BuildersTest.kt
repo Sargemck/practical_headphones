@@ -43,6 +43,8 @@ class BuildersTest {
             Builders.modeConfig(ModeConfigWrite(8, 0, 0, tooLong, 0, Spatial.OFF, wind = false, anc = false))
         }
         assertThrows<IllegalArgumentException> { Builders.productName("") }
+        assertThrows<IllegalArgumentException> { Builders.productName("   ") }
+        assertEquals("Desk", Builders.productName(" Desk  ").toString(Charsets.UTF_8))
     }
 
     @Test

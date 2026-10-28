@@ -39,12 +39,15 @@ object Profiles {
         return matches.firstOrNull { it.editable } ?: matches.firstOrNull()
     }
 
-    /** Throws [ProfileError.InvalidName] unless [name] can be used for a custom mode. */
+    /**
+     * Throws [ProfileError.InvalidName] unless [name] can be used for a custom mode. Checks the
+     * trimmed name, which is what [create] and [update] write.
+     */
     fun validateName(name: String, modes: Collection<ModeConfig>) {
         val trimmed = name.trim()
         fun invalid(reason: String): Nothing = throw ProfileError.InvalidName(name, reason)
         if (trimmed.isEmpty()) invalid("blank")
-        if (name.toByteArray(Charsets.UTF_8).size > Builders.MAX_NAME_BYTES) {
+        if (trimmed.toByteArray(Charsets.UTF_8).size > Builders.MAX_NAME_BYTES) {
             invalid("longer than ${Builders.MAX_NAME_BYTES} UTF-8 bytes")
         }
         if (trimmed.equals(FREE_NAME, ignoreCase = true)) invalid("reserved for empty slots")
@@ -59,7 +62,7 @@ object Profiles {
             index = slot,
             promptB1 = 0,
             promptB2 = 0,
-            name = name,
+            name = name.trim(),
             cnc = settings.cnc,
             spatial = settings.spatial,
             wind = settings.wind,
@@ -82,7 +85,7 @@ object Profiles {
             index = mode.index,
             promptB1 = mode.promptB1,
             promptB2 = mode.promptB2,
-            name = rename ?: mode.name,
+            name = rename?.trim() ?: mode.name,
             cnc = settings?.cnc ?: mode.cnc,
             spatial = settings?.spatial ?: mode.spatial,
             wind = settings?.wind ?: mode.wind,

@@ -295,3 +295,91 @@ Common to every entry below unless stated:
 
 - `adb shell am start ... --es hex "02 02 01 00"` passes only `02`: adb shell splits on spaces. Pass hex without spaces.
 - At 11:28:06 the USB connection reset (adb transport id 2 -> 3, the logcat stream ended with exit 255). Cause unknown. adb came straight back; the phone's 16 MB log buffer covered the gap.
+
+## M2 device session, 2026-10-28
+
+- Firmware: 10.12.12+ga927c9a. Phone: Pixel 10 Pro, Android 17 (SDK 37).
+- Headphones on the desk, not worn. Debug build of the M2 service. Logs in the session scratchpad; MACs and paired-device names not copied here.
+
+### 2026-10-28 M2: hardware write test (reply shapes, timings)
+
+- Tested: `HardwareWriteTest` over SPP. Read all, then each write as read → write → read back → restore. Multipoint last.
+- Evidence (write → confirmed read-back):
+
+  ```text
+  1.2  name "PH Test"      reply STATUS 00 50 48 20 54 65 73 74   261 ms; restored 175 ms
+  1.7  EQ band 0/1/2 = 3   reply STATUS f6 0a 03 00 f6 0a 00 01 ...  103-115 ms; restored 110-235 ms
+  1.11 Self Voice OFF      reply STATUS 01 00 0f                     87 ms; restored 98 ms
+  1.24 auto play/pause     reply STATUS 01                           93 ms; restored 110 ms
+  1.27 auto answer         reply STATUS 01                          246 ms; restored 124 ms
+  31.8 favourites same     reply STATUS 0b 00 d7                     78 ms
+  1.10 multipoint 07 → 07  reply STATUS 07
+  1.10 multipoint 07 → 05  reply STATUS 07, read back 07; restored 07
+  ```
+
+- Conclusion:
+  - Every SETGET reply is STATUS in the same shape as the GET reply. All writes now parse the reply as the applied value; the extra GET after a write is gone.
+  - Multipoint ignores a write that clears bit 0x02. Its write meaning stays unknown, so multipoint is read-only in v1 (PLAN M2 rule).
+  - All values restored and read back.
+
+### 2026-10-28 M2: cold start x10
+
+- Tested: `am force-stop`, then `am start` MainActivity, 10 times; waited for `LOADED`.
+- Evidence: SPP connect 152-537 ms every time; connect start to fully loaded 658-1200 ms; every `STATE` dump had all sections loaded (8 configured modes, current 7).
+- Conclusion: bug 1 (first connect doesn't load modes/spatial) doesn't occur. No reflection fallback needed.
+
+### 2026-10-28 M2: Bluetooth broadcasts need an exported receiver
+
+- Tested: our `SystemLinkMonitor` registered with `RECEIVER_NOT_EXPORTED`; the headphones slept at 23:36:02.
+- Evidence: Bluetooth logged `HEADSET ... STATE_CONNECTED -> STATE_DISCONNECTING` and A2DP `Disconnected`, but our receiver logged nothing. The grace expired with the system still "connected": `LINK Connected -> AnotherApp`. After switching to `RECEIVER_EXPORTED`: `SYSTEM HFP state=1/2`, `SYSTEM A2DP state=1/2` arrive.
+- Conclusion: profile and adapter broadcasts are sent by the Bluetooth app's uid, not the system uid, so a not-exported receiver never gets them. They're protected broadcasts, so exported is safe. **Conflict with the M2 plan (fixed in this PR).**
+
+### 2026-10-28 M2: sleep, event order
+
+- Evidence (the natural sleep drop above):
+
+  ```text
+  23:36:02.057 RFCOMM DISC from the headphones (HFP channel)
+  23:36:02.060 HFP disconnected
+  23:36:02.134 our socket: read() == -1 (RemoteClosed)
+  23:36:02.241 A2DP disconnecting, .259 disconnected
+  ```
+
+- Step 7, with the exported receiver: link up 23:43:18 (after a BT toggle), service idle, screen off.
+
+  ```text
+  23:53:16.198 HFP disconnecting
+  23:53:16.221 A2DP disconnecting (.360 disconnected)
+  23:53:16.265 our socket: read() == -1 (RemoteClosed)
+  23:53:16.790 our receiver: HFP and A2DP disconnected -> SystemLink connected=false
+  23:53:16.795 LINK Connected -> Disconnected
+  no connect attempt in the following 70 s
+  ```
+
+- Conclusion:
+  - On sleep the headphones close the profiles and our RFCOMM link within ~70-200 ms of each other, in either order. Our receiver hears about it ~0.5 s after the socket drops, so without the 2 s grace sleep would read as "another app".
+  - Sleep is a quiet `Disconnected` with no reconnect attempts, as required.
+  - The drop came 9 min 58 s after the link came up (M0: 10.5 min).
+
+### 2026-10-28 M2: notification actions and write timing
+
+- Tested: real shade via `cmd statusbar expand-notifications`, uiautomator, `input tap`.
+- Evidence:
+  - "Noise cancelling off": state changed at tap, SETGET 31.10 sent 9 ms later, device STATUS 359 ms after that.
+  - "Next mode" Run → Quiet: START 31.3 RESULT in 265 ms, GET 31.10 132 ms later returned Quiet's settings (`00 00 00 00 01`: wind off, ANC on). Five more taps cycled 0 → 1 → 2 → 4 → 6 → 7, skipping non-favourites; back on Run 31.10 was `00 00 00 01 01` again.
+  - The notification (importance low) sits collapsed in the "Silent" section; its actions show only once it's expanded.
+- Conclusion: actions work. A mode switch replaces the live audio settings with the mode's own (second observation after M0 E5). The ANC reply time (~360 ms) is the device; our share is ~10 ms.
+
+### 2026-10-28 M2: Bluetooth toggle and contention
+
+- Evidence:
+  - BT toggle, app not opened: `Connected -> BluetoothOff`; BT on at 23:41:31; connected event 23:41:35.4; SPP connect 615 ms; loaded 1065 ms (5.4 s from BT on).
+  - Spike SPP connect while the service was connected: our socket `RemoteClosed` 58 ms later; `AnotherApp` after the 2 s grace; no connect attempt or frame from the service for 72 s. Recovered by BT toggle: loaded 869 ms.
+  - Waking with a spike connect while asleep: socket up in 2.3 s; HFP connected 5 s later; the service then connected on the fresh event and took over from the spike.
+- Conclusion: the contention rule holds on the device. A spike connect is a reliable remote wake.
+
+### 2026-10-28 M2: notes
+
+- Right after the spike wake, GET 1.2 took 2047 ms (A2DP was still connecting). Under the 3 s timeout. Watch item.
+- LE Audio (fw 10.12.12 beta) is off on these headphones. If it were on, neither A2DP nor HFP would report connected and the app would think the headphones are away. Known gap; not handled in v1.
+- The adb logcat stream dropped once (exit 255) at 23:34 during an APK install; restarted with `-T`. Same symptom as the M0 USB reset.

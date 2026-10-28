@@ -10,14 +10,11 @@ class Headphones(private val connection: BmapConnection) {
         return parse(feature.address, reply.payload, feature.parse)
     }
 
-    suspend fun <T> write(feature: WriteFeature<T>, value: T) {
-        setget(feature.address, feature.build(value))
-    }
-
-    /** Writes the live audio settings and returns what the device applied. */
-    suspend fun setAudioSettings(settings: AudioSettings): AudioSettings {
-        val reply = setget(QcUltra2.audioSettingsWrite, Builders.audioSettings(settings))
-        return parse(QcUltra2.audioSettingsWrite, reply.payload, Parsers::audioSettings)
+    /** Writes [value] and returns what the device's reply says it applied. */
+    suspend fun <T, R> write(feature: WriteFeature<T, R>, value: T): WriteReply<R> {
+        val reply = setget(feature.address, feature.build(value))
+        val parseReply = feature.parseReply ?: return WriteReply.Raw(reply)
+        return WriteReply.Applied(parse(feature.address, reply.payload, parseReply))
     }
 
     suspend fun deviceInfo(mac: MacAddress): DeviceInfo {

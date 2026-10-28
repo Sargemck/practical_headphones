@@ -34,7 +34,7 @@ class HeadphonesTest {
     @Test
     fun `writes reach the device state`() = runTest {
         val h = rig().headphones
-        h.write(QcUltra2.Write.autoAnswer, true)
+        assertEquals(WriteReply.Applied(true), h.write(QcUltra2.Write.autoAnswer, true))
         assertEquals(true, h.read(QcUltra2.autoAnswer))
         h.write(QcUltra2.Write.autoPlayPause, true)
         assertEquals(true, h.read(QcUltra2.autoPlayPause))
@@ -42,17 +42,17 @@ class HeadphonesTest {
         assertEquals(-4, h.read(QcUltra2.eq).single { it.bandId == 2 }.current)
         h.write(QcUltra2.Write.selfVoice, SelfVoiceLevel.OFF)
         assertEquals(SelfVoice(persist = true, level = SelfVoiceLevel.OFF, extra = 0x0f), h.read(QcUltra2.selfVoice))
-        h.write(QcUltra2.Write.productName, "Desk")
+        h.write(QcUltra2.Write.productName, "  Desk ")
         assertEquals("Desk", h.read(QcUltra2.productName))
         h.write(QcUltra2.Write.favourites, Favourites(11, setOf(0, 5)))
         assertEquals(setOf(0, 5), h.read(QcUltra2.favourites).slots)
     }
 
     @Test
-    fun `setAudioSettings returns what the device applied`() = runTest {
+    fun `audio settings write returns what the device applied`() = runTest {
         val h = rig().headphones
         val wanted = AudioSettings(cnc = 6, autoCnc = false, spatial = Spatial.OFF, wind = true, anc = true)
-        assertEquals(wanted, h.setAudioSettings(wanted))
+        assertEquals(WriteReply.Applied(wanted), h.write(QcUltra2.Write.audioSettings, wanted))
         assertEquals(wanted, h.read(QcUltra2.audioSettings))
     }
 
@@ -81,7 +81,7 @@ class HeadphonesTest {
             assertEquals(Spatial.FIXED_TO_ROOM, it.spatial)
             assertTrue(it.configured)
         }
-        h.updateProfile("hike", rename = "Trail", settings = hike.copy(cnc = 7))
+        h.updateProfile("hike", rename = " Trail ", settings = hike.copy(cnc = 7))
         h.allModes().modes.single { it.index == 8 }.let {
             assertEquals("Trail", it.name)
             assertEquals(7, it.cnc)
