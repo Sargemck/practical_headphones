@@ -265,6 +265,7 @@ Hands-off device run: add the tile programmatically if possible (else defer addi
 
 - First-run companion-device association (CompanionDeviceManager) for the headphones.
 - Observe device presence; when the headphones connect, start the service and connect. When they disconnect, stop the service and drop the notification.
+- Must replace M2's always-on service before release. M2 keeps the service up as "Not connected" while the headphones are away. Play's policy for the `connectedDevice` foreground service type expects active use with a connected device, so an idle always-on service would likely fail review. After M6 the service runs only while the headphones are present.
 - Spike first: verify the presence APIs, permissions and Bluetooth Classic behaviour against current Android docs. If it doesn't work reliably, fall back to an `ACTION_ACL_CONNECTED` receiver and record why in FINDINGS. Reviewer approves the approach before full build.
 - The association dialog needs one tap on the phone. If it can't be driven via adb input, it's the one allowed interruption in M6: ask once, batched.
 
