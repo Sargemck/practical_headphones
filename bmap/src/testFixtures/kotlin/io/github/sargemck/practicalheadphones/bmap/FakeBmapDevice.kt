@@ -61,6 +61,9 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
 
     var dropDrainResult = false
 
+    /** Answer this address and op with ERROR and this code. */
+    val forceError = mutableMapOf<Pair<Address, BmapOp>, Int>()
+
     /** Split each outgoing chunk into pieces of this many bytes. */
     var chunkSize: Int? = null
 
@@ -153,7 +156,8 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
             disconnect()
             return
         }
-        val replies = beforeReply.toList() + respond(frame)
+        val forced = forceError[address to frame.op]?.let { listOf(error(address, it)) }
+        val replies = beforeReply.toList() + (forced ?: respond(frame))
         beforeReply.clear()
         val delayFor = delays[address] ?: Duration.ZERO
         if (address in processingFirst) push(BmapFrame(address.fblock, address.func, BmapOp.PROCESSING).encode())
