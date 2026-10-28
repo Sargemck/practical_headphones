@@ -71,8 +71,8 @@ reference/bosectl   gitignored clone of github.com/aaronsb/bosectl. Read-only re
 Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `parsers.py`, `connection.py`. Port the logic from the Python; ignore the Rust/C++.
 
 **Link**
-- Classic Bluetooth RFCOMM, channel 2. BMAP service UUID `00000000-deca-fade-deca-deafdecacaff`.
-- The Bose app holds the same channel. If package `com.bose.bosemusic` is installed and running, we can't connect.
+- Classic Bluetooth RFCOMM, channel 2, reached via SDP with the SPP UUID (see Android rules). The advertised BMAP service UUID `00000000-deca-fade-deca-deafdecacaff` resolves to a different, non-BMAP channel on fw 10.12.12.
+- One BMAP connection at a time: a new connection is accepted and the previous one is dropped (M0). The Bose app or Quiet Rebellion connecting cuts us off with `read() == -1`, and our connect cuts them off. Don't reconnect in a loop against another app; follow the connect rule.
 
 **Frame:** `[fblock][func][flags][len][payload...]`
 - flags = `deviceId<<6 | port<<4 | op` (we send 0 for deviceId/port). len is 1 byte.
@@ -140,7 +140,7 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 
 ## Android rules
 
-- Connect: try public `createInsecureRfcommSocketToServiceRecord(BMAP_UUID)` first. If that fails or lands on the wrong channel, fall back to reflection `createInsecureRfcommSocket(2)`. The reflection method is a non-SDK API: currently allowed at every target SDK, but it could be blocked later. Log which path was used.
+- Connect (M0 FINDINGS E1/E8): primary is public `createInsecureRfcommSocketToServiceRecord(SPP_UUID)` with the standard SPP UUID `00001101-0000-1000-8000-00805f9b34fb`, which reaches BMAP. Never SDP-connect with the BMAP UUID: on fw 10.12.12 it lands on a beacon channel that never answers. A connect counts only once a BMAP request is answered. If SPP fails or doesn't answer, fall back to reflection `createInsecureRfcommSocket(2)` (non-SDK API: allowed at every target SDK today, could be blocked later). Log which path was used.
 - Never initiate an RFCOMM connect unless Android reports the headphones' ACL/A2DP as connected. No retry loops, no polling connects. A connect attempt wakes sleeping headphones (M0 FINDINGS), so retrying would keep them awake in a bag and drain the battery. Reconnect is driven only by system connection events.
 - A foreground service (type `connectedDevice`) owns the connection and a `HeadphoneRepository` exposing `StateFlow<HeadphoneState>`. UI, tile and notification only observe and send intents.
 - Writes are optimistic: update state immediately, send, roll back with an error snackbar if it fails.
