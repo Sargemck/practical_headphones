@@ -65,6 +65,7 @@ object SpikeSession {
 
     @Volatile private var socket: BluetoothSocket? = null
     @Volatile private var lastPath: String? = null
+    @Volatile private var lastUuid: UUID = BMAP_UUID
     @Volatile private var heartbeat: Job? = null
 
     init {
@@ -151,6 +152,7 @@ object SpikeSession {
         log("CONNECTED $label device=\"${device.name}\" in ${ms(SpikeLog.nowMs() - start)} ms channel=${channelOf(s)}")
         socket = s
         lastPath = path
+        lastUuid = uuid
         startReader(s)
     }
 
@@ -228,7 +230,7 @@ object SpikeSession {
         val path = lastPath ?: return log("PROBE2: connect first")
         if (socket == null) log("PROBE2 warning: first socket is not open")
         val device = findHeadphones(context) ?: return log("PROBE2: no bonded device")
-        val s2 = openSocket(device, path)
+        val s2 = openSocket(device, path, lastUuid)
         val start = SpikeLog.nowMs()
         try {
             s2.connect()
@@ -320,9 +322,11 @@ object SpikeSession {
 
     private suspend fun send(bytes: ByteArray) {
         val parser = FrameParser()
-        val frames = parser.feed(bytes).filterIsInstance<FrameEvent.Frame>()
-        if (frames.size != 1 || parser.buffered != 0) return log("SEND needs exactly one whole frame: ${Hex.format(bytes)}")
-        val reply = request(frames.single().frame) ?: return
+        val events = parser.feed(bytes)
+        if (events.size != 1 || events[0] !is FrameEvent.Frame || parser.buffered != 0) {
+            return log("SEND needs exactly one whole frame and nothing else: ${Hex.format(bytes)}")
+        }
+        val reply = request((events[0] as FrameEvent.Frame).frame) ?: return
         log("REPLY ${reply.first} in ${ms(reply.second)} ms")
     }
 
