@@ -215,6 +215,75 @@ class HeadphoneRepositoryTest {
         assertEquals("04 00", h.fake.received.last { it.address == QcUltra2.selectMode }.payload.let(Hex::format))
     }
 
+    @Test
+    fun `EQ preset writes only the bands that differ, in order, as one optimistic change`() = runTest {
+        val h = connected()
+        h.repo.setEq(-2, 0, 2)
+        assertEquals(listOf(-2, 0, 2), h.state.eq.valueOrNull()!!.map { it.current })
+        runCurrent()
+        val writes = h.fake.received.filter { it.address == QcUltra2.eq.address && it.op == BmapOp.SETGET }
+        assertEquals(listOf("fe 00", "02 02"), writes.map { Hex.format(it.payload) })
+        assertEquals(listOf(-2, 0, 2), h.state.eq.valueOrNull()!!.map { it.current })
+        assertTrue(h.messages.isEmpty())
+    }
+
+    @Test
+    fun `EQ preset failure rolls back as one`() = runTest {
+        val h = connected { forceError[QcUltra2.eq.address to BmapOp.SETGET] = ErrorCodes.RUNTIME }
+        h.repo.setEq(6, 0, 6)
+        runCurrent()
+        assertEquals(listOf(0, 0, 0), h.state.eq.valueOrNull()!!.map { it.current })
+        assertEquals(listOf(UserMessage("Couldn't change the equaliser")), h.messages)
+    }
+
+    @Test
+    fun `EQ preset failing part way shows what the device confirmed`() = runTest {
+        val h = connected()
+        h.fake.delays[QcUltra2.eq.address] = 100.milliseconds
+        h.repo.setEq(-2, 3, 2)
+        advanceTimeBy(50.milliseconds) // the bass write is received; its reply lands at 100 ms
+        h.fake.forceError[QcUltra2.eq.address to BmapOp.SETGET] = ErrorCodes.RUNTIME
+        advanceTimeBy(1.seconds)
+        assertEquals(listOf(-2, 0, 0), h.state.eq.valueOrNull()!!.map { it.current })
+        assertEquals(1, h.messages.size)
+    }
+
+    @Test
+    fun `retry re-reads only the failed sections`() = runTest {
+        val h = connected { forceError[QcUltra2.eq.address to BmapOp.GET] = ErrorCodes.RUNTIME }
+        assertTrue(h.state.eq is Section.Failed)
+        h.fake.forceError.clear()
+        val batteryReads = h.fake.count(QcUltra2.battery.address, BmapOp.GET)
+        h.repo.retryFailed()
+        runCurrent()
+        assertTrue(h.state.eq is Section.Loaded)
+        assertEquals(3, h.fake.count(QcUltra2.eq.address, BmapOp.GET))
+        assertEquals(batteryReads, h.fake.count(QcUltra2.battery.address, BmapOp.GET))
+    }
+
+    @Test
+    fun `retry of failed modes reloads modes and audio`() = runTest {
+        val h = connected { forceError[QcUltra2.allModes to BmapOp.START] = ErrorCodes.RUNTIME }
+        assertTrue(h.state.modes is Section.Failed)
+        h.fake.forceError.clear()
+        h.repo.retryFailed()
+        runCurrent()
+        assertEquals(8, h.state.modes.valueOrNull()?.modes?.size)
+        assertTrue(h.state.audio is Section.Loaded)
+    }
+
+    @Test
+    fun `star toggles a favourite from cached state`() = runTest {
+        val h = connected()
+        h.repo.toggleFavourite(5)
+        assertEquals(setOf(0, 1, 2, 4, 5, 6, 7), h.state.modes.valueOrNull()?.favourites?.slots)
+        runCurrent()
+        h.repo.toggleFavourite(0)
+        runCurrent()
+        assertEquals(setOf(1, 2, 4, 5, 6, 7), h.state.modes.valueOrNull()?.favourites?.slots)
+        assertEquals(setOf(1, 2, 4, 5, 6, 7), QcUltra2.favourites.parse(h.fake.payload(QcUltra2.favourites.address)!!).slots)
+    }
+
     // Live updates
 
     @Test

@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.SystemClock
+import io.github.sargemck.practicalheadphones.AppGraph
 import io.github.sargemck.practicalheadphones.BuildConfig
 import io.github.sargemck.practicalheadphones.MainActivity
 import io.github.sargemck.practicalheadphones.R
@@ -56,6 +57,7 @@ class HeadphoneService : Service() {
             log = BmapLog::d,
         )
         repository.setBoseAppInstalled(BoseAppDetector.isInstalled(this))
+        AppGraph.controller.value = repository
         systemLink = SystemLinkMonitor(this, locator, repository::onSystemLink, BmapLog::d).also { it.start() }
         screen = ScreenMonitor(this, repository::onScreen).also { it.start() }
 
@@ -78,6 +80,7 @@ class HeadphoneService : Service() {
     }
 
     override fun onDestroy() {
+        AppGraph.controller.value = null
         systemLink.stop()
         screen.stop()
         scope.cancel()
