@@ -29,7 +29,11 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
-        unitTests.all { it.useJUnitPlatform() }
+        unitTests.all {
+            it.useJUnitPlatform()
+            // Robolectric reaches FileDescriptor internals (SDK 37 shared memory), closed by default on JDK 21.
+            it.jvmArgs("--add-opens=java.base/java.io=ALL-UNNAMED", "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED")
+        }
     }
 }
 
@@ -51,6 +55,8 @@ dependencies {
     testImplementation(testFixtures(project(":bmap")))
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.androidx.compose.ui.test.junit4)
+    // Robolectric brings espresso 3.5.1, which calls InputManager.getInstance(), gone in SDK 37.
+    testImplementation(libs.androidx.test.espresso.core)
     testImplementation(libs.robolectric)
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
