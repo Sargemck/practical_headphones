@@ -36,6 +36,13 @@ class ProfilesTest {
     }
 
     @Test
+    fun `names are trimmed before validating and writing`() {
+        assertEquals("Hike", Profiles.create(modes, "  Hike ", settings).name)
+        assertEquals("Calm", Profiles.update(modes, "Relax", rename = " Calm ").name)
+        Profiles.validateName(" " + "x".repeat(31) + " ", modes)
+    }
+
+    @Test
     fun `preset names refused in any case`() {
         for (name in listOf("quiet", "AWARE", " Immersion ", "cinema")) {
             assertThrows<ProfileError.InvalidName>(name) { Profiles.create(modes, name, settings) }

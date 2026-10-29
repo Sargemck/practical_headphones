@@ -9,9 +9,9 @@ object Builders {
     /** Longest name the device stores, in UTF-8 bytes (32-byte field with a NUL). */
     const val MAX_NAME_BYTES = 31
 
-    /** Product name SETGET: UTF-8, no flag byte (bosectl `set_name`). Too long is rejected, not truncated. */
+    /** Product name SETGET: trimmed UTF-8, no flag byte (bosectl `set_name`). Too long is rejected, not truncated. */
     fun productName(name: String): ByteArray {
-        val bytes = name.toByteArray(Charsets.UTF_8)
+        val bytes = name.trim().toByteArray(Charsets.UTF_8)
         require(bytes.isNotEmpty() && bytes.size <= MAX_NAME_BYTES) { "name must be 1..$MAX_NAME_BYTES UTF-8 bytes" }
         return bytes
     }

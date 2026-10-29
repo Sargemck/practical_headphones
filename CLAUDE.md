@@ -87,7 +87,7 @@ Source: `reference/bosectl/NOTES.md`, `python/pybmap/devices/qc_ultra2.py`, `par
 | Product name | 1.2 | GET / SETGET | GET payload `[flag, utf8...]`, max 31 bytes |
 | EQ | 1.7 | GET / SETGET | GET: 3x `[min,max,current,bandId]`. SETGET `[value(signed), bandId]`, bands 0 bass 1 mid 2 treble, -10..10 |
 | Buttons | 1.9 | GET only | SETGET echoes but is ignored (needs cloud auth). Don't build remapping. |
-| Multipoint | 1.10 | GET / SETGET | GET is a bitfield (fw 10.12.12 sends `07`), 0x02 = enabled. Write semantics unverified: no builder until M2's hardware test |
+| Multipoint | 1.10 | GET (read-only in v1) | GET is a bitfield (fw 10.12.12 sends `07`), 0x02 = enabled. The firmware ignores a write that clears 0x02 (M2), so no write in v1 |
 | Sidetone (Self Voice) | 1.11 | GET / SETGET | GET `[persist, level, ?]` (fw 10.12.12 sends `01 02 0f`; third byte unverified, probably supported levels). SETGET `[persist, level]`. Level 0 off 1 high 2 med 3 low |
 | Auto play/pause | 1.24 | GET / SETGET | bool |
 | Auto answer | 1.27 | GET / SETGET | bool |
@@ -110,6 +110,7 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 - `cnc` 0..10 is inverted: 0 = max noise cancelling, 10 = most ambient. UI shows strength = `10 - cnc` with left = let world in, right = block.
 - `autoCnc` must be 0. Firmware rejects 1 with Runtime error 8.
 - `spatial` 0 off, 1 fixed-to-room, 2 fixed-to-head.
+- Every SETGET reply is STATUS in the same shape as the GET reply (M0 E5, M2 hardware test); `Headphones.write()` returns it parsed.
 - Wind Block masks CNC: with wind on, CNC level changes are inaudible. Explain this in the UI.
 - A mode switch changes the live audio settings (M0 E5: spatial went from 02 to 00 on START 31.3). After START 31.3 succeeds, re-read 31.10 before updating state. Never keep the cached 31.10 across a mode switch.
 
@@ -143,13 +144,15 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 
 - Connect (M0 FINDINGS E1/E8): primary is public `createInsecureRfcommSocketToServiceRecord(SPP_UUID)` with the standard SPP UUID `00001101-0000-1000-8000-00805f9b34fb`, which reaches BMAP. Never SDP-connect with the BMAP UUID: on fw 10.12.12 it lands on a beacon channel that never answers. A connect counts only once a BMAP request is answered. If SPP fails or doesn't answer, fall back to reflection `createInsecureRfcommSocket(2)` (non-SDK API: allowed at every target SDK today, could be blocked later). Log which path was used.
 - Never initiate an RFCOMM connect unless Android reports the headphones' ACL/A2DP as connected. No retry loops, no polling connects. A connect attempt wakes sleeping headphones (M0 FINDINGS), so retrying would keep them awake in a bag and drain the battery. Automatic connects happen only on a fresh ACL/A2DP connected event from the system.
-- Contention: if our socket drops (`read() == -1`) while Android still reports the headphones' ACL connected, assume another app took over the link. Don't auto-reconnect. Set a state the UI shows as "Another app is using your headphones" with a Reconnect button. Only a user tap or a fresh connected event connects again.
+- Contention: if our socket drops (`read() == -1`) while Android still reports the headphones' ACL connected, assume another app took over the link. Don't auto-reconnect. Set a state the UI shows as "Another app is using your headphones" with a Reconnect button. Only a user tap or a fresh connected event connects again. Exception: a `Closed(RemoteClosed)` within ~5 s after we sent power off or pairing mode is expected; the state shows "Headphones off" or "Pairing mode" instead.
 - A foreground service (type `connectedDevice`) owns the connection and a `HeadphoneRepository` exposing `StateFlow<HeadphoneState>`. UI, tile and notification only observe and send intents.
 - Writes are optimistic: update state immediately, send, roll back with an error snackbar if it fails.
 - Writes to 31.10 build the payload from cached state. No read-before-write.
 - Initial load starts immediately after connect (no greeting frames, M0), reading each feature in turn. Retry a failed read once. The UI must never show a half-loaded screen as if it were real values: show loading per section.
 - Debug builds only: the debug entry activity sets `FLAG_KEEP_SCREEN_ON`, `setShowWhenLocked(true)` and `setTurnScreenOn(true)` so hands-off runs work on a locked phone. Release builds must not have these.
 - The app isn't direct-boot aware. Nothing of ours runs before the first unlock after a reboot.
+- Bluetooth adapter and profile broadcasts come from the Bluetooth app's uid, so register for them with `RECEIVER_EXPORTED` (they're protected, so this is safe). A not-exported receiver never gets them (M2 FINDINGS).
+- Headphones count as connected when A2DP or HFP is connected. LE Audio would show neither (known gap, FINDINGS).
 - Permissions: `BLUETOOTH_CONNECT`, `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, plus companion-device permissions from M6. `<queries>` entry for `com.bose.bosemusic`.
 
 ## UX copy
