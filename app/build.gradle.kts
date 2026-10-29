@@ -58,6 +58,8 @@ dependencies {
     testRuntimeOnly(libs.junit.vintage.engine)
     testRuntimeOnly(libs.junit.platform.launcher)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    // Demo mode runs the screen on the simulated headphones. Debug only: release has no fake.
+    debugImplementation(testFixtures(project(":bmap")))
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)

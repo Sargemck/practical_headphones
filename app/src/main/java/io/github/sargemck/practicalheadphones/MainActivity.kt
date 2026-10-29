@@ -19,6 +19,7 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sargemck.practicalheadphones.link.BoseAppDetector
 import io.github.sargemck.practicalheadphones.service.HeadphoneService
+import io.github.sargemck.practicalheadphones.state.HeadphoneController
 import io.github.sargemck.practicalheadphones.state.HeadphoneState
 import io.github.sargemck.practicalheadphones.ui.Actions
 import io.github.sargemck.practicalheadphones.ui.AppTheme
@@ -30,8 +31,12 @@ class MainActivity : ComponentActivity() {
         if (granted[Manifest.permission.BLUETOOTH_CONNECT] == true) HeadphoneService.start(this)
     }
 
+    /** Debug demo mode: the screen runs on a simulated device instead of the service. */
+    private var demo: HeadphoneController? = null
+
     override fun onStart() {
         super.onStart()
+        if (demo != null) return
         HeadphoneService.uiVisible.value = true
         val wanted = buildList {
             add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -43,13 +48,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        HeadphoneService.uiVisible.value = false
+        if (demo == null) HeadphoneService.uiVisible.value = false
         super.onStop()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        DebugEntry.onCreate(this)
+        demo = DebugEntry.demoController(this)
+        val source = demo?.let { MutableStateFlow(it) } ?: AppGraph.controller
         val android = Actions(
             openBluetoothSettings = { open(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
             openBoseAppSettings = {
@@ -58,7 +66,7 @@ class MainActivity : ComponentActivity() {
             openUrl = { open(Intent(Intent.ACTION_VIEW, Uri.parse(it))) },
         )
         setContent {
-            val controller by AppGraph.controller.collectAsStateWithLifecycle()
+            val controller by source.collectAsStateWithLifecycle()
             val state by remember(controller) { controller?.state ?: MutableStateFlow(HeadphoneState()) }.collectAsStateWithLifecycle()
             val snackbar = remember { SnackbarHostState() }
             LaunchedEffect(controller) { controller?.messages?.collect { snackbar.showSnackbar(it.text) } }
