@@ -1,28 +1,29 @@
 package io.github.sargemck.practicalheadphones
 
 import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.stringResource
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.sargemck.practicalheadphones.link.BoseAppDetector
 import io.github.sargemck.practicalheadphones.service.HeadphoneService
+import io.github.sargemck.practicalheadphones.state.HeadphoneState
+import io.github.sargemck.practicalheadphones.ui.Actions
+import io.github.sargemck.practicalheadphones.ui.AppTheme
+import io.github.sargemck.practicalheadphones.ui.HeadphonesApp
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
@@ -46,20 +47,32 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        val android = Actions(
+            openBluetoothSettings = { open(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
+            openBoseAppSettings = {
+                open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", BoseAppDetector.PACKAGE, null)))
+            },
+            openUrl = { open(Intent(Intent.ACTION_VIEW, Uri.parse(it))) },
+        )
         setContent {
-            val context = LocalContext.current
-            val colors = if (isSystemInDarkTheme()) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            MaterialTheme(colorScheme = colors) {
-                Scaffold(
-                    topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
-                ) { padding ->
-                    Box(Modifier.fillMaxSize().padding(padding))
-                }
+            val controller by AppGraph.controller.collectAsStateWithLifecycle()
+            val state by remember(controller) { controller?.state ?: MutableStateFlow(HeadphoneState()) }.collectAsStateWithLifecycle()
+            val snackbar = remember { SnackbarHostState() }
+            LaunchedEffect(controller) { controller?.messages?.collect { snackbar.showSnackbar(it.text) } }
+            AppTheme {
+                HeadphonesApp(state, controller?.let { Actions.of(it, android) } ?: android, snackbar)
             }
+        }
+    }
+
+    private fun open(intent: Intent) {
+        try {
+            startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            // Nothing on this phone handles it; the button just does nothing.
         }
     }
 }

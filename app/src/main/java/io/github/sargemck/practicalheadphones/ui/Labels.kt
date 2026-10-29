@@ -1,5 +1,6 @@
 package io.github.sargemck.practicalheadphones.ui
 
+import io.github.sargemck.practicalheadphones.bmap.Builders
 import io.github.sargemck.practicalheadphones.bmap.SelfVoiceLevel
 import io.github.sargemck.practicalheadphones.bmap.Spatial
 
@@ -14,11 +15,21 @@ val selfVoiceOptions: List<Pair<String, SelfVoiceLevel>> = listOf(
 fun selfVoiceLabel(level: SelfVoiceLevel): String = selfVoiceOptions.first { it.second == level }.first
 
 /** Bose's names. Still = fixed to room, Motion = fixed to head (inferred, confirmed by ear in H1). */
-val spatialOptions: List<Triple<String, Spatial, String>> = listOf(
-    Triple("Off", Spatial.OFF, "Normal stereo."),
+val spatialOptions: List<Triple<String, Spatial, String?>> = listOf(
+    Triple("Off", Spatial.OFF, null),
     Triple("Still", Spatial.FIXED_TO_ROOM, "Sound stays put when you turn your head."),
     Triple("Motion", Spatial.FIXED_TO_HEAD, "Sound moves with you."),
 )
+
+/** Why a headphone name can't be used, or null if it can. Checked after trimming. */
+fun nameError(input: String): String? {
+    val trimmed = input.trim()
+    return when {
+        trimmed.isEmpty() -> "Enter a name."
+        trimmed.toByteArray(Charsets.UTF_8).size > Builders.MAX_NAME_BYTES -> "That name is too long."
+        else -> null
+    }
+}
 
 /** The noise slider shows strength = 10 - cnc: left lets the world in, right blocks it. */
 fun strengthFromCnc(cnc: Int): Int = 10 - cnc
