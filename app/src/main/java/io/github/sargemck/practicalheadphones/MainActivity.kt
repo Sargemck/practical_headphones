@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
             val snackbar = remember { SnackbarHostState() }
             LaunchedEffect(controller) { controller?.messages?.collect { snackbar.showSnackbar(it.text) } }
             AppTheme {
-                HeadphonesApp(state, controller?.let { Actions.of(it, android) } ?: android, snackbar)
+                HeadphonesApp(state, controller?.let { Actions.of(it, android) } ?: android, BuildConfig.VERSION_NAME, snackbar)
             }
         }
     }

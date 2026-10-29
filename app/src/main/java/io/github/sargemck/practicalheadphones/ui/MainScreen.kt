@@ -1,5 +1,6 @@
 package io.github.sargemck.practicalheadphones.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
@@ -42,19 +43,43 @@ import io.github.sargemck.practicalheadphones.state.valueOrNull
 fun HeadphonesApp(
     state: HeadphoneState,
     actions: Actions,
+    appVersion: String,
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
+    initialScreen: Screen = Screen.Main,
     initialDialog: DeviceDialog? = null,
 ) {
+    var screen by rememberSaveable { mutableStateOf(initialScreen) }
     var dialog by rememberSaveable { mutableStateOf(initialDialog) }
+    BackHandler(enabled = screen == Screen.About) { screen = Screen.Main }
     Scaffold(
         modifier = Modifier.semantics { testTagsAsResourceId = true },
-        topBar = { TopAppBar(title = { Text("Practical Headphones") }) },
+        topBar = {
+            when (screen) {
+                Screen.Main -> TopAppBar(
+                    title = { Text("Practical Headphones") },
+                    actions = {
+                        IconButton(onClick = { screen = Screen.About }, modifier = Modifier.testTag("about")) {
+                            Icon(painterResource(R.drawable.ic_info), contentDescription = "About")
+                        }
+                    },
+                )
+                Screen.About -> TopAppBar(
+                    title = { Text("About") },
+                    navigationIcon = { BackIcon { screen = Screen.Main } },
+                )
+            }
+        },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        MainContent(state, actions, padding) { dialog = it }
+        when (screen) {
+            Screen.Main -> MainContent(state, actions, padding) { dialog = it }
+            Screen.About -> AboutContent(state, appVersion, actions, padding)
+        }
     }
     DeviceDialogs(dialog, state.name.valueOrNull(), actions) { dialog = null }
 }
+
+enum class Screen { Main, About }
 
 @Composable
 private fun MainContent(state: HeadphoneState, actions: Actions, padding: PaddingValues, openDialog: (DeviceDialog) -> Unit) {
