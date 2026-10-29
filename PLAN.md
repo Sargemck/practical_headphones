@@ -244,13 +244,15 @@ Success means a reliable "use only this device" action and a reliable switch. Th
 Claude Code prepares a numbered checklist before asking. Claude Code watches logcat throughout and writes results into FINDINGS.
 
 - **By ear:**
-  - noise slider end to end; wind block on/off with the slider; spatial Off / Still / Motion (confirm label mapping)
+  - noise slider end to end; spatial Off / Still / Motion (confirm label mapping)
+  - Wind Block on/off with the slider: does the slider still change anything with Wind Block on? Update the copy.
+  - noise cancelling switch (31.10 anc): what does it do by ear? Update the copy.
   - EQ presets
   - perceived lag on the slider vs Quiet Rebellion
 - **Hands on the headphones:**
   - press the shortcut button, press-and-hold, swipe volume, change mode with the button
   - take them off and put them back on
-  - turn them off and on
+  - turn them off and on: does turning them on need the power button, or do they wake on movement? Update the power-off copy.
   - Does the app follow along, and do unsolicited frames show up in the log? This decides whether polling stays.
 - **Power off and pairing mode** from the app.
 - **UX opinion:** walk through the whole app; anything confusing, ugly, missing. Becomes a short fix list folded into M4.
