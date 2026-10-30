@@ -383,3 +383,29 @@ Common to every entry below unless stated:
 - Right after the spike wake, GET 1.2 took 2047 ms (A2DP was still connecting). Under the 3 s timeout. Watch item.
 - LE Audio (fw 10.12.12 beta) is off on these headphones. If it were on, neither A2DP nor HFP would report connected and the app would think the headphones are away. Known gap; not handled in v1.
 - The adb logcat stream dropped once (exit 255) at 23:34 during an APK install; restarted with `-T`. Same symptom as the M0 USB reset.
+
+## M3 device session, 2026-10-30
+
+- Firmware: 10.12.12+ga927c9a. Phone: Pixel 10 Pro, Android 17 (SDK 37).
+- Headphones on the desk, not worn. Debug build of the M3 UI, every control driven by resource id (`uiautomator dump` + `input tap/swipe`). Logs in the session scratchpad; the headphone name is not copied here.
+
+### 2026-10-30 M3: UI writes on the device
+
+- Tested: each control tapped from the UI, write confirmed by the device reply, then restored. Power off and pairing mode: dialog opened and cancelled, nothing sent.
+- Evidence (only writes M2 didn't cover):
+
+  ```text
+  31.3  START 04 00 (custom mode Walk)  RESULT 04, then 31.10 GET -> 00 00 00 01 01 (Walk has Wind Block on)
+  31.8  SETGET 0b 00 f7 (star Relax)    STATUS 0b 00 f7; restored 0b 00 d7
+  31.10 SETGET wind 01 / anc 00 / spatial 00, 01, 02   each STATUS echoes the payload
+  31.10 slider drag 10 -> 3 -> 10       conflated writes cnc 05, 06, 07 then 05, 03, 01, 00, each answered
+  1.7   SETGET fe 00, 03 01, 02 02 (Voice preset)      accepted; negative values as two's complement
+  1.11  SETGET 01 00 / 01 03 / 01 01 / 01 02           STATUS 01 <level> 0f each (Off, Low, High, Medium)
+  ```
+
+- Final `STATE` identical to the baseline, battery included.
+- Conclusion: every M3 control works on the device. The Self Voice mapping (Off 0, High 1, Medium 2, Low 3) is accepted at every level; whether High and Low sound right is an H1 check.
+
+### 2026-10-30 M3: notes
+
+- Headphones switched off don't answer a spike connect (2x `PAGE_TIMEOUT` after 5 s, 2026-10-29 and 2026-10-30). The spike wake works only when they're asleep. After Baris turned them on, ACL connected and the already-running service connected on that event and had everything loaded 2.4 s later.
