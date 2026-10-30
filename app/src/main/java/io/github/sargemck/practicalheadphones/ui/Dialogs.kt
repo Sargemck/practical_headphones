@@ -12,6 +12,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 
 enum class DeviceDialog { Rename, Pairing, PowerOff }
 
@@ -42,7 +44,7 @@ fun RenameDialog(current: String, onConfirm: (String) -> Unit, onDismiss: () -> 
         dismissButton = {
             TextButton(onClick = onDismiss, modifier = Modifier.testTag("dialog-cancel")) { Text("Cancel") }
         },
-        modifier = Modifier.testTag("rename-dialog"),
+        modifier = Modifier.dialogTag("rename-dialog"),
     )
 }
 
@@ -58,9 +60,12 @@ fun ConfirmDialog(title: String, text: String, confirm: String, tag: String, onC
         dismissButton = {
             TextButton(onClick = onDismiss, modifier = Modifier.testTag("dialog-cancel")) { Text("Cancel") }
         },
-        modifier = Modifier.testTag("$tag-dialog"),
+        modifier = Modifier.dialogTag("$tag-dialog"),
     )
 }
+
+/** A dialog is its own window, so it needs its own `testTagsAsResourceId` for adb to see the tags. */
+private fun Modifier.dialogTag(tag: String) = semantics { testTagsAsResourceId = true }.testTag(tag)
 
 @Composable
 fun DeviceDialogs(dialog: DeviceDialog?, name: String?, actions: Actions, close: () -> Unit) {
