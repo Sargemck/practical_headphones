@@ -18,6 +18,7 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 ## Hard rules
 
 - Only use BMAP operators GET (1), SETGET (2) and START (5). Never send SET (0). Never touch the Authentication block (18). No key extraction, no replaying captured auth, no firmware update code.
+- Never send [4.3] RemoveDevice, [4.7] ClearDeviceList, [4.10] PrepareP2P or [4.11] P2PMode, with any op. They unpair devices or are unknown. `BmapConnection` refuses them even if a config entry is added by mistake.
 - No `INTERNET` permission. No analytics, no crash reporting SDKs.
 - No JNI / native sockets.
 - Never force-push. Never push to `main` after S0; everything goes through a PR.

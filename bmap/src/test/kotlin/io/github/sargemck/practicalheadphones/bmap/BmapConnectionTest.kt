@@ -241,6 +241,17 @@ class BmapConnectionTest {
     }
 
     @Test
+    fun `commands that unpair devices or are unknown are refused with any op`() = runTest {
+        val r = rig()
+        for (func in listOf(3, 7, 10, 11)) {
+            for (op in listOf(BmapOp.GET, BmapOp.SETGET, BmapOp.START)) {
+                assertThrows<BmapException.Refused>("4.$func $op") { r.connection.request(BmapFrame(4, func, op, Hex.parse("01"))) }
+            }
+        }
+        assertTrue(r.fake.received.isEmpty())
+    }
+
+    @Test
     fun `concurrent requests run one at a time`() = runTest {
         val r = rig { delays[battery] = 50.milliseconds }
         val results = (1..10).map { async { r.headphones.read(QcUltra2.battery) } }.awaitAll()

@@ -58,16 +58,16 @@ class HeadphoneRepository(
     private val clock: () -> Long,
     private val log: (String) -> Unit = {},
     private val live: LiveUpdates = LiveUpdates(),
-) {
+) : HeadphoneController {
     private enum class Key { Name, Battery, Modes, Audio, Eq, SelfVoice, AutoPlayPause, AutoAnswer, Multipoint }
 
     private data class Visibility(val uiVisible: Boolean, val screenOn: Boolean)
 
     private val _state = MutableStateFlow(HeadphoneState())
-    val state: StateFlow<HeadphoneState> = _state.asStateFlow()
+    override val state: StateFlow<HeadphoneState> = _state.asStateFlow()
 
     private val _messages = MutableSharedFlow<UserMessage>(extraBufferCapacity = 8)
-    val messages: SharedFlow<UserMessage> = _messages.asSharedFlow()
+    override val messages: SharedFlow<UserMessage> = _messages.asSharedFlow()
 
     private val events = Channel<LinkEvent>(Channel.UNLIMITED)
     private var policy = PolicyState()
@@ -97,7 +97,7 @@ class HeadphoneRepository(
 
     fun setBoseAppInstalled(installed: Boolean) = _state.update { it.copy(boseAppInstalled = installed) }
 
-    fun reconnect() {
+    override fun reconnect() {
         events.trySend(LinkEvent.UserReconnect)
     }
 
@@ -196,6 +196,42 @@ class HeadphoneRepository(
     }
 
     private suspend fun <T> load(read: suspend () -> T, set: (Section<T>) -> Unit) = set(attempt(read))
+
+    /** Re-reads every section that failed to load, each with the usual single retry. */
+    override fun retryFailed() {
+        val h = headphones ?: return message("Not connected")
+        launchInSession {
+            try {
+                if (_state.value.modes is Section.Failed) {
+                    _state.update { it.copy(modes = Section.Loading, audio = Section.Loading) }
+                    loadModes(h)
+                } else {
+                    retry({ it.audio }, { h.read(QcUltra2.audioSettings) }) { s, v -> audioConfirmed = v.valueOrNull(); s.copy(audio = v) }
+                }
+                retry({ it.battery }, { h.read(QcUltra2.battery) }) { s, v -> s.copy(battery = v) }
+                retry({ it.name }, { h.read(QcUltra2.productName) }) { s, v -> s.copy(name = v) }
+                retry({ it.firmware }, { h.read(QcUltra2.firmware) }) { s, v -> s.copy(firmware = v) }
+                retry({ it.eq }, { h.read(QcUltra2.eq) }) { s, v -> s.copy(eq = v) }
+                retry({ it.selfVoice }, { h.read(QcUltra2.selfVoice) }) { s, v -> s.copy(selfVoice = v) }
+                retry({ it.autoPlayPause }, { h.read(QcUltra2.autoPlayPause) }) { s, v -> s.copy(autoPlayPause = v) }
+                retry({ it.autoAnswer }, { h.read(QcUltra2.autoAnswer) }) { s, v -> s.copy(autoAnswer = v) }
+                retry({ it.multipoint }, { h.read(QcUltra2.multipoint) }) { s, v -> s.copy(multipoint = v) }
+            } catch (e: BmapException) {
+                log("retry ended: ${e.message}")
+            }
+        }
+    }
+
+    private suspend fun <T> retry(
+        get: (HeadphoneState) -> Section<T>,
+        read: suspend () -> T,
+        set: (HeadphoneState, Section<T>) -> HeadphoneState,
+    ) {
+        if (get(_state.value) !is Section.Failed) return
+        _state.update { set(it, Section.Loading) }
+        val result = attempt(read)
+        _state.update { set(it, result) }
+    }
 
     /** One read, retried once on a device error or malformed reply. Disconnects end the session. */
     private suspend fun <T> attempt(read: suspend () -> T): Section<T> {
@@ -313,7 +349,7 @@ class HeadphoneRepository(
      * Live audio settings. Optimistic, built from cached state, and conflated: while a write is
      * in flight only the latest wanted value is kept.
      */
-    fun setAudio(change: (AudioSettings) -> AudioSettings) {
+    override fun setAudio(change: (AudioSettings) -> AudioSettings) {
         val current = _state.value.audio.valueOrNull() ?: return message("Not connected")
         val h = headphones ?: return message("Not connected")
         val wanted = change(current)
@@ -349,7 +385,7 @@ class HeadphoneRepository(
     fun toggleAnc() = setAudio { it.copy(anc = !it.anc) }
 
     /** Switches to a configured mode, then takes the fresh audio settings the switch produced. */
-    fun selectMode(index: Int) {
+    override fun selectMode(index: Int) {
         val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
         val h = headphones ?: return message("Not connected")
         if (modes.modes.none { it.index == index }) return message("That mode doesn't exist")
@@ -379,7 +415,7 @@ class HeadphoneRepository(
         nextFavourite(modes)?.let(::selectMode) ?: message("No favourite modes")
     }
 
-    fun setEqBand(bandId: Int, value: Int) {
+    override fun setEqBand(bandId: Int, value: Int) {
         val bands = _state.value.eq.valueOrNull() ?: return message("Not connected")
         write(
             key = Key.Eq,
@@ -393,19 +429,57 @@ class HeadphoneRepository(
         )
     }
 
-    fun setSelfVoice(level: SelfVoiceLevel) {
+    /**
+     * Sets all three EQ bands as one change (an EQ preset). The device takes one band per write,
+     * so the bands that differ are written in order. On failure the screen shows the last value
+     * the device confirmed, or the previous one if nothing was written.
+     */
+    override fun setEq(bass: Int, mid: Int, treble: Int) {
+        val h = headphones ?: return message("Not connected")
+        val previous = _state.value.eq.valueOrNull() ?: return message("Not connected")
+        val wanted = mapOf(0 to bass, 1 to mid, 2 to treble)
+        val changes = previous.filter { band -> wanted[band.bandId].let { it != null && it != band.current } }
+        if (changes.isEmpty()) return
+        started(Key.Eq)
+        _state.update { it.copy(eq = Section.Loaded(previous.map { b -> b.copy(current = wanted[b.bandId] ?: b.current) })) }
+        launchInSession {
+            active(Key.Eq) {
+                var confirmed = previous
+                try {
+                    for (band in changes) {
+                        val reply = h.write(QcUltra2.Write.eqBand, EqBandSetting(band.bandId, wanted.getValue(band.bandId)))
+                        confirmed = (reply as? WriteReply.Applied)?.value ?: h.read(QcUltra2.eq)
+                    }
+                    _state.update { it.copy(eq = Section.Loaded(confirmed)) }
+                } catch (e: BmapException) {
+                    _state.update { it.copy(eq = Section.Loaded(confirmed)) }
+                    message("Couldn't change the equaliser")
+                    log("eq write failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    override fun setSelfVoice(level: SelfVoiceLevel) {
         val current = _state.value.selfVoice.valueOrNull() ?: return message("Not connected")
         write(Key.SelfVoice, QcUltra2.Write.selfVoice, level, current.copy(level = level), QcUltra2.selfVoice, { it.selfVoice }, { s, v -> s.copy(selfVoice = v) }, "Couldn't change Self Voice")
     }
 
-    fun setAutoPlayPause(on: Boolean) =
+    override fun setAutoPlayPause(on: Boolean) =
         write(Key.AutoPlayPause, QcUltra2.Write.autoPlayPause, on, on, QcUltra2.autoPlayPause, { it.autoPlayPause }, { s, v -> s.copy(autoPlayPause = v) }, "Couldn't change auto play/pause")
 
-    fun setAutoAnswer(on: Boolean) =
+    override fun setAutoAnswer(on: Boolean) =
         write(Key.AutoAnswer, QcUltra2.Write.autoAnswer, on, on, QcUltra2.autoAnswer, { it.autoAnswer }, { s, v -> s.copy(autoAnswer = v) }, "Couldn't change auto answer")
 
-    fun setName(name: String) =
+    override fun setName(name: String) =
         write(Key.Name, QcUltra2.Write.productName, name, name.trim(), QcUltra2.productName, { it.name }, { s, v -> s.copy(name = v) }, "Couldn't rename the headphones")
+
+    /** Adds or removes [index] from the favourites, built from cached state. */
+    override fun toggleFavourite(index: Int) {
+        val favourites = _state.value.modes.valueOrNull()?.favourites ?: return message("Not connected")
+        val slots = if (index in favourites.slots) favourites.slots - index else favourites.slots + index
+        setFavourites(favourites.copy(slots = slots))
+    }
 
     fun setFavourites(favourites: Favourites) =
         write(
@@ -460,9 +534,9 @@ class HeadphoneRepository(
 
     // Commands that drop the link. Wired for M3; exercised only in H1.
 
-    fun powerOff() = command(Command.PowerOff) { it.powerOff() }
+    override fun powerOff() = command(Command.PowerOff) { it.powerOff() }
 
-    fun pairingMode() = command(Command.PairingMode) { it.pairingMode() }
+    override fun pairingMode() = command(Command.PairingMode) { it.pairingMode() }
 
     private fun command(command: Command, send: suspend (Headphones) -> Unit) {
         val h = headphones ?: return message("Not connected")

@@ -35,9 +35,14 @@ class RfcommConnector(
         val device = locator.find(adapter) ?: throw IOException("headphones not paired")
         for (path in Path.entries) {
             val started = System.nanoTime()
+            var opened: BluetoothSocket? = null
             val socket = try {
-                open(device, path).also { withContext(Dispatchers.IO) { it.connect() } }
+                open(device, path).also {
+                    opened = it
+                    withContext(Dispatchers.IO) { it.connect() }
+                }
             } catch (e: Exception) {
+                runCatching { opened?.close() }
                 log("CONNECT $path failed: ${e.javaClass.simpleName} ${e.message}")
                 continue
             }
