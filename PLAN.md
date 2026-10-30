@@ -239,6 +239,8 @@ The spike's allowlist adds only [4.1], [4.2] and [4.12], and only for the PC's M
 
 Success means a reliable "use only this device" action and a reliable switch. Then H1 tests it by ear with two sources and it gets planned into a milestone. If nothing works without auth, it goes back to "Never" with the evidence in FINDINGS. The PC's MAC is redacted in everything committed.
 
+Also in S1's hands-off run (M3 review D5, no headphones needed): demo mode with `forceError` on one section, `cmd uimode night yes`, screenshot the failed section on the device. Blank or unreadable means a real bug: fix it in M4 and give the golden its own test again. If it renders fine, record in FINDINGS that it was a Robolectric quirk.
+
 ### H1: hands-on session after M3 and S1 (Baris, ~45 min)
 
 Claude Code prepares a numbered checklist before asking. Claude Code watches logcat throughout and writes results into FINDINGS.
@@ -249,17 +251,21 @@ Claude Code prepares a numbered checklist before asking. Claude Code watches log
   - noise cancelling switch (31.10 anc): what does it do by ear? Update the copy.
   - EQ presets
   - perceived lag on the slider vs Quiet Rebellion
+  - the noise slider writes while dragging (kept, M3 review). Should the EQ sliders do the same instead of writing on release?
 - **Hands on the headphones:**
   - press the shortcut button, press-and-hold, swipe volume, change mode with the button
   - take them off and put them back on
   - turn them off and on: does turning them on need the power button, or do they wake on movement? Update the power-off copy.
   - Does the app follow along, and do unsolicited frames show up in the log? This decides whether polling stays.
 - **Power off and pairing mode** from the app.
-- **UX opinion:** walk through the whole app; anything confusing, ugly, missing. Becomes a short fix list folded into M4.
+- **UX opinion:** walk through the whole app; anything confusing, ugly, missing. Becomes a short fix list folded into M4. Start from the reviewer's M3 notes:
+  - "Bose preset" as a small tag instead of the repeated "Bose preset, can't be edited" line
+  - top app bar with a scroll behaviour so it changes shade over content
 
 ## M4: Custom mode editor (+ H1 fixes)
 
 - Fix list from H1.
+- Permission denied (M3 review Q1): a `PermissionMissing` status card, "Bluetooth permission needed", with a button that requests `BLUETOOTH_CONNECT`, and opens the app details settings if the system won't show the prompt again. Same for `POST_NOTIFICATIONS`, but as a non-blocking banner.
 - Create a mode in a free slot (4–10): name, strength, spatial, wind, ANC on/off.
 - Edit, rename, delete custom modes. Presets 0–3 read-only.
 - Full slots: clear message, no silent failure.
