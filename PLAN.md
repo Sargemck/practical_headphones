@@ -226,18 +226,33 @@ Tests: screenshot tests for every section in light, dark and largest font, again
 
 Hands-off device run: install, drive every control via adb input, screenshot each state, confirm each write by read-back in logcat. Skip power off and pairing mode.
 
-### H1: hands-on session after M3 (Baris, ~45 min)
+## S1: Source control spike (after M3, before H1)
+
+Baris's request (2026-10-28): explicitly switch between two sources (e.g. PC and phone), and stop a notification on one from taking the audio from the other for a few seconds. Example: gaming on the PC, a work email notification on the phone takes the audio for 3-5 s. Third-party reports describe the same problem (Pixel 10 Pro + Bose earbuds + Mac, Oct 2025); the only fixes people offer are putting the earbuds away or turning off Bluetooth on the phone.
+
+Hands-off where possible. Baris's PC is the second source: Claude Code plays audio on the PC while the phone stays connected. Probe with the spike, each with read-backs:
+- GET [4.4] and [5.1]: which sources are connected and which is active.
+- START [4.12] routing (bosectl `route()`, payload `[0x82, MAC]`), with and without both sources streaming.
+- [4.2] Disconnect and [4.1] Connect with the PC's MAC: does disconnecting the PC work without auth, and does Connect bring it back?
+
+The spike's allowlist adds only [4.1], [4.2] and [4.12], and only for the PC's MAC. Never [4.3] / [4.7] (hard rule).
+
+Success means a reliable "use only this device" action and a reliable switch. Then H1 tests it by ear with two sources and it gets planned into a milestone. If nothing works without auth, it goes back to "Never" with the evidence in FINDINGS. The PC's MAC is redacted in everything committed.
+
+### H1: hands-on session after M3 and S1 (Baris, ~45 min)
 
 Claude Code prepares a numbered checklist before asking. Claude Code watches logcat throughout and writes results into FINDINGS.
 
 - **By ear:**
-  - noise slider end to end; wind block on/off with the slider; spatial Off / Still / Motion (confirm label mapping)
+  - noise slider end to end; spatial Off / Still / Motion (confirm label mapping)
+  - Wind Block on/off with the slider: does the slider still change anything with Wind Block on? Update the copy.
+  - noise cancelling switch (31.10 anc): what does it do by ear? Update the copy.
   - EQ presets
   - perceived lag on the slider vs Quiet Rebellion
 - **Hands on the headphones:**
   - press the shortcut button, press-and-hold, swipe volume, change mode with the button
   - take them off and put them back on
-  - turn them off and on
+  - turn them off and on: does turning them on need the power button, or do they wake on movement? Update the power-off copy.
   - Does the app follow along, and do unsolicited frames show up in the log? This decides whether polling stays.
 - **Power off and pairing mode** from the app.
 - **UX opinion:** walk through the whole app; anything confusing, ugly, missing. Becomes a short fix list folded into M4.
@@ -307,8 +322,4 @@ Hands-off device run:
 
 - **v2:** Pixel Watch tile (`:wear`), more Bose models via upstream configs, "send device report" button, plain-English error messages.
 - **v3:** context automations (mode by activity / Wi-Fi / location).
-- **Requested by Baris (2026-10-28), not scheduled:** explicit source switching between two devices (e.g. PC and phone), well featured. Example problem: gaming on the PC, a work email notification on the other device takes the audio for 3-5 s. Needs a design spike before any milestone; it conflicts with the "multipoint switching polish" line below, so the reviewer decides scope. Known so far:
-  - Building blocks: paired devices [4.4], device names [4.5], active source [5.1], routing START [4.12] (bosectl: works only while both sources stream).
-  - The interruption case happens exactly while both stream, so "switch back to the locked source" may fit inside the window [4.12] allows. Unverified; needs two sources and Baris, so it's an H-session test.
-  - Phone-side alternatives: a normal app can't turn off the phone's media audio profile for the headphones (system-only API). It can only send the user to the Bluetooth settings screen.
-- **Never:** button remapping (needs cloud auth), firmware updates, multipoint switching polish (protocol only allows a brief window).
+- **Never:** button remapping (needs cloud auth), firmware updates, Quiet Rebellion's retry hack on [4.12] routing. Source control is the S1 spike instead.

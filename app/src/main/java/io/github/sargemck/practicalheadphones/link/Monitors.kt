@@ -46,7 +46,7 @@ fun Context.registerSystemReceiver(receiver: BroadcastReceiver, filter: IntentFi
 }
 
 object BoseAppDetector {
-    private const val PACKAGE = "com.bose.bosemusic"
+    const val PACKAGE = "com.bose.bosemusic"
 
     /** Needs the `<queries>` entry in the manifest. */
     fun isInstalled(context: Context): Boolean = try {

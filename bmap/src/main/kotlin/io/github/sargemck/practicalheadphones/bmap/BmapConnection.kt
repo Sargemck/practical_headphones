@@ -219,7 +219,9 @@ class BmapConnection(
     }
 
     private suspend fun send(frame: BmapFrame) {
-        if (frame.op !in ALLOWED_OPS || frame.fblock == AUTH_FBLOCK) throw BmapException.Refused(frame)
+        if (frame.op !in ALLOWED_OPS || frame.fblock == AUTH_FBLOCK || frame.address in NEVER_SEND) {
+            throw BmapException.Refused(frame)
+        }
         logger.log(LogEvent.Out(frame))
         try {
             transport.write(frame.encode())
@@ -278,6 +280,9 @@ class BmapConnection(
     private companion object {
         const val AUTH_FBLOCK = 18
         val ALLOWED_OPS = setOf(BmapOp.GET, BmapOp.SETGET, BmapOp.START)
+
+        /** Unpairs devices or is unknown (bosectl NOTES block 4): RemoveDevice, ClearDeviceList, PrepareP2P, P2PMode. */
+        val NEVER_SEND = setOf(Address(4, 3), Address(4, 7), Address(4, 10), Address(4, 11))
         val REPLY_OPS = setOf(BmapOp.STATUS, BmapOp.RESULT, BmapOp.ERROR, BmapOp.PROCESSING)
     }
 }
