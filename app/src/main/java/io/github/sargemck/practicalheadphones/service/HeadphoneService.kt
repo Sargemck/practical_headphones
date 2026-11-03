@@ -20,6 +20,7 @@ import io.github.sargemck.practicalheadphones.link.HeadphonesLocator
 import io.github.sargemck.practicalheadphones.link.RfcommConnector
 import io.github.sargemck.practicalheadphones.link.ScreenMonitor
 import io.github.sargemck.practicalheadphones.link.SystemLinkMonitor
+import io.github.sargemck.practicalheadphones.state.FileLastKnownStore
 import io.github.sargemck.practicalheadphones.state.HeadphoneRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.io.File
 
 /**
  * Owns the one connection to the headphones. Started by [MainActivity]; stays up while the
@@ -55,6 +57,8 @@ class HeadphoneService : Service() {
             connector = RfcommConnector(this, locator, BmapLog.frames, BmapLog::d),
             clock = SystemClock::elapsedRealtime,
             log = BmapLog::d,
+            // No-backup dir: the snapshot (including the headphones' name) never leaves the phone.
+            lastKnownStore = FileLastKnownStore(File(noBackupFilesDir, "last-known.txt"), BmapLog::d),
         )
         repository.setBoseAppInstalled(BoseAppDetector.isInstalled(this))
         AppGraph.controller.value = repository

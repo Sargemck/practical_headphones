@@ -52,5 +52,8 @@ object Samples {
         connected.copy(eq = Section.Loaded(bands.mapIndexed { i, b -> b.copy(current = listOf(3, -4, 1)[i]) }))
     }
 
+    /** The headphones went away after a full load: sections cleared, values kept in lastKnown. */
+    val offline: HeadphoneState by lazy { connected.cleared().copy(link = LinkState.Disconnected) }
+
     fun link(link: LinkState) = HeadphoneState(link = link)
 }

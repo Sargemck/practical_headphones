@@ -47,8 +47,21 @@ class HeadphoneRepositoryTest {
         var failConnect = false
     }
 
+    /** Remembers saves in memory; [stored] is what the next repository loads. */
+    private class MemoryStore(var stored: HeadphoneState? = null) : LastKnownStore {
+        val saves = mutableListOf<HeadphoneState>()
+
+        override fun load() = stored
+
+        override fun save(snapshot: HeadphoneState) {
+            saves += snapshot
+            stored = snapshot
+        }
+    }
+
     private fun TestScope.harness(
         live: LiveUpdates = LiveUpdates(polling = false),
+        store: LastKnownStore = LastKnownStore.None,
         configure: FakeBmapDevice.() -> Unit = {},
     ): Harness {
         val fakes = mutableListOf<FakeBmapDevice>()
@@ -59,7 +72,7 @@ class HeadphoneRepositoryTest {
             fakes += fake
             BmapConnection(fake, scope).also { Headphones(it).read(QcUltra2.battery) }
         }
-        val repo = HeadphoneRepository(backgroundScope, connector, clock = { testScheduler.currentTime }, live = live)
+        val repo = HeadphoneRepository(backgroundScope, connector, clock = { testScheduler.currentTime }, live = live, lastKnownStore = store)
         val messages = mutableListOf<UserMessage>()
         val states = mutableListOf<HeadphoneState>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { repo.messages.toList(messages) }
@@ -69,8 +82,9 @@ class HeadphoneRepositoryTest {
 
     private fun TestScope.connected(
         live: LiveUpdates = LiveUpdates(polling = false),
+        store: LastKnownStore = LastKnownStore.None,
         configure: FakeBmapDevice.() -> Unit = {},
-    ): Harness = harness(live, configure).also {
+    ): Harness = harness(live, store, configure).also {
         it.repo.onSystemLink(on)
         runCurrent()
     }
@@ -369,13 +383,37 @@ class HeadphoneRepositoryTest {
     }
 
     @Test
+    fun `the last known settings are saved after a load and come back in a new process`() = runTest {
+        val store = MemoryStore()
+        val h = connected(store = store)
+        assertEquals(h.state.copy(lastKnown = null), store.saves.single())
+        val restarted = harness(store = store)
+        assertEquals(LinkState.Disconnected, restarted.state.link)
+        assertEquals(h.state.name, restarted.state.lastKnown!!.name)
+        assertTrue(restarted.state.copy(lastKnown = null) == HeadphoneState())
+    }
+
+    @Test
+    fun `after a disconnect the last values are kept apart from the live state`() = runTest {
+        val h = connected()
+        val loaded = h.state
+        h.fake.disconnect()
+        runCurrent()
+        advanceTimeBy(800.milliseconds)
+        h.repo.onSystemLink(away)
+        runCurrent()
+        assertEquals(HeadphoneState(link = LinkState.Disconnected), h.state.copy(lastKnown = null))
+        assertEquals(loaded.copy(lastKnown = null), h.state.lastKnown!!.copy(link = loaded.link))
+    }
+
+    @Test
     fun `disconnect during load leaves nothing shown as loaded`() = runTest {
         val h = connected { delays[QcUltra2.eq.address] = 1.seconds }
         h.fake.disconnect()
         runCurrent()
         advanceTimeBy(3.seconds)
         assertEquals(LinkState.AnotherApp, h.state.link)
-        assertEquals(HeadphoneState(link = LinkState.AnotherApp), h.state)
+        assertEquals(HeadphoneState(link = LinkState.AnotherApp), h.state.copy(lastKnown = null))
     }
 
     @Test

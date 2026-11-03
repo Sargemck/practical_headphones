@@ -158,7 +158,7 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 
 ## UX copy
 
-- Plain English, one line under every setting saying what it does. No protocol words in the UI.
+- Plain English, no protocol words in the UI. A line under a setting only when it tells the user something the name doesn't (what triggers it, what it costs, what a term means). Never one that restates the name, like "Turns noise cancelling on or off" (Baris, 2026-11-03).
 - Use Bose's names: "Self Voice", not "sidetone". For spatial: Off / Still (sound stays put when you turn your head, = fixed-to-room) / Motion (sound moves with you, = fixed-to-head). Mapping is inferred from the protocol enum names; confirm by ear in M3.
 - Hide anything we can't explain confidently (e.g. Self Voice persistence flag).
 - Preset modes show as read-only with a short "Bose preset, can't be edited" note.

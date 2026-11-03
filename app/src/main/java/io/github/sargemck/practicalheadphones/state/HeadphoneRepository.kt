@@ -58,12 +58,13 @@ class HeadphoneRepository(
     private val clock: () -> Long,
     private val log: (String) -> Unit = {},
     private val live: LiveUpdates = LiveUpdates(),
+    private val lastKnownStore: LastKnownStore = LastKnownStore.None,
 ) : HeadphoneController {
     private enum class Key { Name, Battery, Modes, Audio, Eq, SelfVoice, AutoPlayPause, AutoAnswer, Multipoint }
 
     private data class Visibility(val uiVisible: Boolean, val screenOn: Boolean)
 
-    private val _state = MutableStateFlow(HeadphoneState())
+    private val _state = MutableStateFlow(HeadphoneState(lastKnown = lastKnownStore.load()))
     override val state: StateFlow<HeadphoneState> = _state.asStateFlow()
 
     private val _messages = MutableSharedFlow<UserMessage>(extraBufferCapacity = 8)
@@ -107,7 +108,9 @@ class HeadphoneRepository(
         val (next, actions) = LinkPolicy.reduce(policy, event)
         if (next.link != policy.link) log("LINK ${policy.link} -> ${next.link} on $event")
         policy = next
+        val before = _state.value.lastKnown
         _state.update { if (next.link == LinkState.Connected) it.copy(link = next.link) else it.cleared().copy(link = next.link) }
+        _state.value.lastKnown?.takeIf { it !== before }?.let(lastKnownStore::save)
         for (action in actions) {
             when (action) {
                 LinkAction.Connect -> startSession()
@@ -145,6 +148,7 @@ class HeadphoneRepository(
             try {
                 initialLoad(h)
                 log("LOADED in ${clock() - started} ms")
+                lastKnownStore.save(_state.value.copy(lastKnown = null))
                 if (live.polling) poll(h)
             } catch (e: BmapException) {
                 log("session ended: ${e.message}")

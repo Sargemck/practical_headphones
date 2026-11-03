@@ -2,6 +2,7 @@ package io.github.sargemck.practicalheadphones.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -15,7 +16,9 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +26,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -51,12 +57,15 @@ fun HeadphonesApp(
     var screen by rememberSaveable { mutableStateOf(initialScreen) }
     var dialog by rememberSaveable { mutableStateOf(initialDialog) }
     BackHandler(enabled = screen == Screen.About) { screen = Screen.Main }
+    // Changes the bar's shade while content scrolls under it.
+    val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
-        modifier = Modifier.semantics { testTagsAsResourceId = true },
+        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection).semantics { testTagsAsResourceId = true },
         topBar = {
             when (screen) {
                 Screen.Main -> TopAppBar(
                     title = { Text("Practical Headphones") },
+                    scrollBehavior = scroll,
                     actions = {
                         IconButton(onClick = { screen = Screen.About }, modifier = Modifier.testTag("about")) {
                             Icon(painterResource(R.drawable.ic_info), contentDescription = "About")
@@ -65,6 +74,7 @@ fun HeadphonesApp(
                 )
                 Screen.About -> TopAppBar(
                     title = { Text("About") },
+                    scrollBehavior = scroll,
                     navigationIcon = { BackIcon { screen = Screen.Main } },
                 )
             }
@@ -94,19 +104,36 @@ private fun MainContent(state: HeadphoneState, actions: Actions, padding: Paddin
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        item { HeroCard(state, actions) }
         if (state.boseAppInstalled) item { BoseBanner(actions) }
-        if (state.link != LinkState.Connected) {
-            item { StatusCard(state.link, actions) }
+        val live = state.link == LinkState.Connected
+        // While disconnected, the last known settings show dimmed and disabled.
+        val shown = if (live) state else state.lastKnown
+        if (!live) item { OfflineNote(hasLastKnown = shown != null) }
+        fun section(content: @Composable () -> Unit) = item {
+            CompositionLocalProvider(LocalLive provides live) {
+                if (live) {
+                    content()
+                } else {
+                    Box {
+                        Box(Modifier.alpha(OFFLINE_ALPHA)) { content() }
+                        // Takes every touch, so nothing under it reacts or ripples.
+                        Box(Modifier.matchParentSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } })
+                    }
+                }
+            }
+        }
+        if (shown == null) {
+            for ((title, text) in previewSections) section { PreviewCard(title, text) }
             return@LazyColumn
         }
-        item { HeaderCard(state, actions) }
-        item { ModesCard(state, actions) }
-        item { NoiseCard(state, actions) }
-        item { SoundCard(state, actions) }
-        item { CallsCard(state, actions) }
-        item {
+        section { ModesCard(shown, actions) }
+        section { NoiseCard(shown, actions) }
+        section { SoundCard(shown, actions) }
+        section { CallsCard(shown, actions) }
+        section {
             DeviceCard(
-                state,
+                shown,
                 actions,
                 onRename = { openDialog(DeviceDialog.Rename) },
                 onPairing = { openDialog(DeviceDialog.Pairing) },
@@ -115,6 +142,8 @@ private fun MainContent(state: HeadphoneState, actions: Actions, padding: Paddin
         }
     }
 }
+
+private const val OFFLINE_ALPHA = 0.5f
 
 @Composable
 internal fun BackIcon(onClick: () -> Unit) {

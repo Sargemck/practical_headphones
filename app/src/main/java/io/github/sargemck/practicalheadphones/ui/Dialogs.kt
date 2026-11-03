@@ -49,11 +49,11 @@ fun RenameDialog(current: String, onConfirm: (String) -> Unit, onDismiss: () -> 
 }
 
 @Composable
-fun ConfirmDialog(title: String, text: String, confirm: String, tag: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+fun ConfirmDialog(title: String, text: String?, confirm: String, tag: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
-        text = { Text(text) },
+        text = text?.let { { Text(it) } },
         confirmButton = {
             TextButton(onClick = onConfirm, modifier = Modifier.testTag("$tag-confirm")) { Text(confirm) }
         },
@@ -85,7 +85,7 @@ fun DeviceDialogs(dialog: DeviceDialog?, name: String?, actions: Actions, close:
         )
         DeviceDialog.PowerOff -> ConfirmDialog(
             title = "Power off?",
-            text = "Turns the headphones off.",
+            text = null,
             confirm = "Power off",
             tag = "power-off",
             onConfirm = { actions.powerOff(); close() },

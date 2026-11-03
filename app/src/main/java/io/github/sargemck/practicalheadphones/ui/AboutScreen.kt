@@ -40,7 +40,7 @@ fun AboutContent(state: HeadphoneState, appVersion: String, actions: Actions, pa
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = pad,
                 )
-                Description("Controls Bose QC Ultra Headphones (2nd Gen) over Bluetooth. No account, no internet.", pad)
+                Description("Controls Bose QC Ultra Headphones (2nd Gen) over Bluetooth.", pad)
                 Description("Not affiliated with Bose.", pad)
             }
         }

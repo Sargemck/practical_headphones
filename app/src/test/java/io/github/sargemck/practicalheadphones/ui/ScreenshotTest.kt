@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.github.takahirom.roborazzi.captureScreenRoboImage
@@ -62,7 +63,7 @@ class ScreenshotTest(private val variant: Variant) {
         var card by mutableStateOf<@Composable () -> Unit>({})
         compose.setContent { UiFrame(variant) { Box(Modifier.padding(16.dp)) { card() } } }
         val cards: List<Triple<String, String, @Composable () -> Unit>> = listOf(
-            Triple("header", "card-header") { HeaderCard(Samples.connected, actions) },
+            Triple("hero", "hero") { HeroCard(Samples.connected, actions) },
             Triple("modes", "card-modes") { ModesCard(Samples.connected, actions) },
             Triple("noise", "card-noise") { NoiseCard(Samples.connected, actions) },
             Triple("sound", "card-sound") { SoundCard(Samples.connected, actions) },
@@ -89,12 +90,37 @@ class ScreenshotTest(private val variant: Variant) {
     @Test
     fun linkStates() {
         var state by mutableStateOf(HeadphoneState())
-        compose.setContent { UiFrame(variant) { Box(Modifier.padding(16.dp)) { StatusCard(state.link, actions) } } }
+        compose.setContent { UiFrame(variant) { Box(Modifier.padding(16.dp)) { HeroCard(state, actions) } } }
         for (link in LinkState.entries - LinkState.Connected) {
             state = Samples.link(link)
             settle()
-            compose.onNodeWithTag("status-card").captureRoboImage(path("link-${link.name.lowercase()}"))
+            compose.onNodeWithTag("hero").captureRoboImage(path("link-${link.name.lowercase()}"))
         }
+    }
+
+    /** Disconnected after a load: the last known settings, dimmed. */
+    @Test
+    fun offline() {
+        compose.setContent { UiFrame(variant) { HeadphonesApp(Samples.offline, actions, "0.0.1") } }
+        settle()
+        compose.onNodeWithTag("main-list").captureRoboImage(path("offline"))
+    }
+
+    /** Disconnected with nothing loaded yet in this process. */
+    @Test
+    fun offlineEmpty() {
+        compose.setContent { UiFrame(variant) { HeadphonesApp(Samples.link(LinkState.Disconnected), actions, "0.0.1") } }
+        settle()
+        compose.onNodeWithTag("main-list").captureRoboImage(path("offline-empty"))
+    }
+
+    @Test
+    fun allModesSheet() {
+        compose.setContent { UiFrame(variant) { HeadphonesApp(Samples.connected, actions, "0.0.1") } }
+        compose.onNodeWithTag("all-modes").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+        settle()
+        captureScreenRoboImage(path("all-modes-sheet"))
     }
 
     @Test

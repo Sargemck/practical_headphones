@@ -1,7 +1,9 @@
 package io.github.sargemck.practicalheadphones.ui
 
 import io.github.sargemck.practicalheadphones.bmap.EqBand
+import io.github.sargemck.practicalheadphones.bmap.Favourites
 import io.github.sargemck.practicalheadphones.bmap.SelfVoiceLevel
+import io.github.sargemck.practicalheadphones.state.Section
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Test
@@ -37,5 +39,15 @@ class LabelsTest {
         assertEquals(EqPreset.BASS, EqPreset.match(bands(6, 0, 0)))
         assertEquals(EqPreset.TREBLE, EqPreset.match(bands(0, 0, 6)))
         assertNull(EqPreset.match(bands(1, 0, 0)))
+    }
+
+    @Test
+    fun `the card shows the current mode and starred ones first, at most four`() {
+        val modes = (Samples.connected.modes as Section.Loaded).value
+        fun quick(current: Int, starred: Set<Int>) =
+            quickModes(modes.copy(current = current, favourites = Favourites(11, starred))).map { it.index }
+        assertEquals(listOf(0, 1, 2, 4), quick(2, setOf(0, 1, 2, 4, 6, 7)))
+        assertEquals(listOf(4, 5, 6, 7), quick(5, setOf(4, 6, 7)))
+        assertEquals(listOf(0, 1, 2, 7), quick(7, emptySet()))
     }
 }

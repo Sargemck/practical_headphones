@@ -1,91 +1,289 @@
 package io.github.sargemck.practicalheadphones.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconToggleButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import io.github.sargemck.practicalheadphones.R
 import io.github.sargemck.practicalheadphones.bmap.EqBand
+import io.github.sargemck.practicalheadphones.bmap.ModeConfig
 import io.github.sargemck.practicalheadphones.bmap.QcUltra2
-import io.github.sargemck.practicalheadphones.service.NotificationModel
 import io.github.sargemck.practicalheadphones.state.HeadphoneState
 import io.github.sargemck.practicalheadphones.state.LinkState
 import io.github.sargemck.practicalheadphones.state.ModesSection
 import io.github.sargemck.practicalheadphones.state.Section
+import io.github.sargemck.practicalheadphones.state.valueOrNull
 import kotlin.math.roundToInt
 
 private val Pad = Modifier.padding(horizontal = 16.dp)
 
+/** What the hero card says for a link state, and the one thing the user can do about it. */
+data class LinkStatus(val title: String, val text: String, val action: Action?) {
+    enum class Action(val label: String, val tag: String) {
+        Reconnect("Reconnect", "reconnect"),
+        OpenBluetooth("Open Bluetooth settings", "open-bluetooth"),
+    }
+}
+
+fun linkStatus(link: LinkState): LinkStatus = when (link) {
+    LinkState.BluetoothOff -> LinkStatus("Bluetooth is off", "Turn on Bluetooth to use your headphones.", LinkStatus.Action.OpenBluetooth)
+    LinkState.NotPaired -> LinkStatus("Not paired", "Pair your QC Ultra headphones with this phone in Bluetooth settings.", LinkStatus.Action.OpenBluetooth)
+    LinkState.Disconnected -> LinkStatus("Not connected", "Turn on your headphones. This app connects as soon as your phone does.", LinkStatus.Action.OpenBluetooth)
+    LinkState.Connecting -> LinkStatus("Connecting…", "Reading your headphones' settings.", null)
+    LinkState.Connected -> LinkStatus("Connected", "", null)
+    LinkState.AnotherApp -> LinkStatus("In use by another app", "Only one app can control the headphones at a time. Reconnect to take over.", LinkStatus.Action.Reconnect)
+    LinkState.HeadphonesOff -> LinkStatus("Turned off", "This app connects again when you turn them on.", null)
+    LinkState.PairingMode -> LinkStatus("Pairing mode", "Ready to pair with a new device. This app connects again afterwards.", null)
+    LinkState.ConnectFailed -> LinkStatus("Couldn't connect", "The headphones didn't answer. Check they're on and nearby.", LinkStatus.Action.Reconnect)
+    LinkState.Lost -> LinkStatus("Connection lost", "The headphones stopped answering.", LinkStatus.Action.Reconnect)
+}
+
+/** Always at the top: which headphones, whether they're connected, battery, and what to do if not. */
 @Composable
-fun HeaderCard(state: HeadphoneState, actions: Actions) {
-    SettingsCard(null, "card-header") {
-        SectionContent(state.name, "Name", "name", actions.retry) {
-            Text(it, style = MaterialTheme.typography.headlineSmall, modifier = Pad.testTag("header-name"))
-        }
-        Text(linkText(state.link), style = MaterialTheme.typography.bodyLarge, modifier = Pad)
-        SectionContent(state.battery, "Battery", "battery", actions.retry) {
-            Text("Battery $it%", style = MaterialTheme.typography.bodyLarge, modifier = Pad.testTag("header-battery"))
+fun HeroCard(state: HeadphoneState, actions: Actions) {
+    val live = state.link == LinkState.Connected
+    val status = linkStatus(state.link)
+    val name = state.name.valueOrNull() ?: state.lastKnown?.name?.valueOrNull() ?: "QC Ultra headphones"
+    val mode = state.modes.valueOrNull()?.currentMode?.name
+    val colors = if (live) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else CardDefaults.cardColors()
+    Card(Modifier.fillMaxWidth().testTag("hero"), colors = colors) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (live) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.size(56.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            painterResource(R.drawable.ic_headphones),
+                            contentDescription = null,
+                            tint = if (live) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(28.dp),
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(name, style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("header-name"))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            if (live && mode != null) "${status.title} · $mode" else status.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f, fill = false).testTag("hero-status"),
+                        )
+                        if (live) Battery(state.battery)
+                    }
+                }
+            }
+            if (!live) {
+                Text(status.text, style = MaterialTheme.typography.bodyMedium)
+                status.action?.let { action ->
+                    val onClick = when (action) {
+                        LinkStatus.Action.Reconnect -> actions.reconnect
+                        LinkStatus.Action.OpenBluetooth -> actions.openBluetoothSettings
+                    }
+                    FilledTonalButton(onClick = onClick, modifier = Modifier.testTag(action.tag)) { Text(action.label) }
+                }
+            }
+            if (state.link == LinkState.Connecting) LinearProgressIndicator(Modifier.fillMaxWidth())
         }
     }
+}
+
+@Composable
+private fun Battery(battery: Section<Int>) {
+    when (battery) {
+        is Section.Loaded -> Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.testTag("header-battery").clearAndSetSemantics { contentDescription = "Battery ${battery.value}%" },
+        ) {
+            Icon(painterResource(R.drawable.ic_battery), contentDescription = null, modifier = Modifier.size(16.dp))
+            Text("${battery.value}%", style = MaterialTheme.typography.labelLarge)
+        }
+        Section.Loading -> CircularProgressIndicator(Modifier.size(16.dp).testTag("battery-loading"), strokeWidth = 2.dp)
+        else -> Unit
+    }
+}
+
+/** Shown under the hero while disconnected, above the dimmed last known settings. */
+@Composable
+fun OfflineNote(hasLastKnown: Boolean) {
+    Description(
+        if (hasLastKnown) {
+            "Last settings read from your headphones. Connect them to make changes."
+        } else {
+            "Once they connect, you can change:"
+        },
+        Modifier.padding(horizontal = 16.dp).testTag("offline-note"),
+    )
+}
+
+/** First run, nothing read yet: what each section will hold, so the screen isn't empty. */
+val previewSections = listOf(
+    "Modes" to "Switch modes and choose which ones the headphones' button cycles through.",
+    "Noise control" to "How much outside sound gets through, Wind Block and spatial audio.",
+    "Equaliser" to "Presets, or set bass, mid and treble yourself.",
+    "Calls" to "Self Voice and auto answer.",
+    "Headphones" to "Auto play/pause, name, pairing mode and power off.",
+)
+
+@Composable
+fun PreviewCard(title: String, text: String) {
+    SettingsCard(title, "preview-${title.lowercase().replace(' ', '-')}") { Description(text, Pad) }
+}
+
+/** How many modes the card shows. The rest are one tap away in the All modes sheet. */
+const val QUICK_MODES = 4
+
+/**
+ * The modes on the card: the current one, then starred ones, then the rest, in the headphones'
+ * order, at most [max].
+ */
+fun quickModes(section: ModesSection, max: Int = QUICK_MODES): List<ModeConfig> {
+    val starred = section.favourites?.slots.orEmpty()
+    val ranked = section.modes.sortedBy {
+        when {
+            it.index == section.current -> 0
+            it.index in starred -> 1
+            else -> 2
+        }
+    }
+    return ranked.take(max).sortedBy { it.index }
 }
 
 @Composable
 fun ModesCard(state: HeadphoneState, actions: Actions) {
     if (state.modes == Section.Unsupported) return
+    var sheetOpen by rememberSaveable { mutableStateOf(false) }
     SettingsCard("Modes", "card-modes") {
-        Description("Tap a mode to switch to it. Starred modes are the ones the headphones' button cycles through.", Pad)
-        SectionContent(state.modes, "Modes", "modes", actions.retry) { modes -> ModeList(modes, actions) }
+        SectionContent(state.modes, "Modes", "modes", actions.retry) { modes ->
+            ModeTiles(quickModes(modes), modes.current, actions)
+            if (modes.modes.size > QUICK_MODES || modes.favourites != null) {
+                NavRow(null, "All modes", null, "all-modes") { sheetOpen = true }
+            }
+            if (sheetOpen) AllModesSheet(modes, actions) { sheetOpen = false }
+        }
+    }
+}
+
+/** Tiles two per row (one at large font sizes, so names don't break mid-word). */
+@Composable
+private fun ModeTiles(modes: List<ModeConfig>, current: Int, actions: Actions) {
+    val columns = if (LocalDensity.current.fontScale > 1.5f) 1 else 2
+    Column(Pad.padding(top = 4.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (row in modes.chunked(columns)) {
+            Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (mode in row) ModeTile(mode, mode.index == current, actions, Modifier.weight(1f).fillMaxHeight())
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
     }
 }
 
 @Composable
-private fun ModeList(modes: ModesSection, actions: Actions) {
-    for (mode in modes.modes) {
-        val favourite = modes.favourites?.let { mode.index in it.slots }
-        RadioRow(
-            title = mode.name,
-            description = if (mode.index in QcUltra2.presetSlots) "Bose preset, can't be edited." else null,
-            selected = mode.index == modes.current,
-            tag = "mode-${mode.index}",
-            onClick = { actions.selectMode(mode.index) },
-            trailing = favourite?.let { on ->
-                {
-                    IconToggleButton(
-                        checked = on,
-                        onCheckedChange = { actions.toggleFavourite(mode.index) },
-                        modifier = Modifier.padding(end = 4.dp).testTag("favourite-${mode.index}"),
-                    ) {
-                        Icon(
-                            painterResource(if (on) R.drawable.ic_star else R.drawable.ic_star_border),
-                            contentDescription = if (on) "${mode.name}, favourite" else "${mode.name}, not a favourite",
-                        )
-                    }
-                }
-            },
-        )
+private fun ModeTile(mode: ModeConfig, selected: Boolean, actions: Actions, modifier: Modifier) {
+    val live = LocalLive.current
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = modifier,
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .selectable(selected = selected, enabled = live, role = Role.RadioButton, onClick = { actions.selectMode(mode.index) })
+                .padding(horizontal = 12.dp, vertical = 16.dp)
+                .testTag("mode-${mode.index}"),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Text(mode.name, style = MaterialTheme.typography.titleSmall)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AllModesSheet(modes: ModesSection, actions: Actions, close: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = close, modifier = Modifier.testTag("all-modes-sheet")) {
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+            Text("All modes", style = MaterialTheme.typography.titleLarge, modifier = Pad)
+            Description("Starred modes are the ones the headphones' button cycles through. Bose presets can't be edited.", Pad.padding(top = 4.dp, bottom = 8.dp))
+            for (mode in modes.modes) {
+                val favourite = modes.favourites?.let { mode.index in it.slots }
+                RadioRow(
+                    title = mode.name,
+                    description = null,
+                    selected = mode.index == modes.current,
+                    tag = "sheet-mode-${mode.index}",
+                    onClick = {
+                        actions.selectMode(mode.index)
+                        close()
+                    },
+                    badge = if (mode.index in QcUltra2.presetSlots) "Bose preset" else null,
+                    trailing = favourite?.let { on ->
+                        {
+                            IconToggleButton(
+                                checked = on,
+                                onCheckedChange = { actions.toggleFavourite(mode.index) },
+                                modifier = Modifier.padding(end = 4.dp).testTag("favourite-${mode.index}"),
+                            ) {
+                                Icon(
+                                    painterResource(if (on) R.drawable.ic_star else R.drawable.ic_star_border),
+                                    contentDescription = if (on) "${mode.name}, favourite" else "${mode.name}, not a favourite",
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -95,16 +293,16 @@ fun NoiseCard(state: HeadphoneState, actions: Actions) {
     SettingsCard("Noise control", "card-noise") {
         SectionContent(state.audio, "Noise control", "audio", actions.retry) { audio ->
             val strength = strengthFromCnc(audio.cnc)
-            Description("How much outside sound gets through.", Pad)
+            val live = LocalLive.current
             Slider(
                 value = strength.toFloat(),
                 onValueChange = { v ->
                     val wanted = v.roundToInt()
-                    if (wanted != strength) actions.setAudio { it.copy(cnc = cncFromStrength(wanted)) }
+                    if (live && wanted != strength) actions.setAudio { it.copy(cnc = cncFromStrength(wanted)) }
                 },
                 valueRange = 0f..10f,
                 steps = 9,
-                modifier = Pad.fillMaxWidth().testTag("noise-slider").semantics {
+                modifier = Pad.fillMaxWidth().offline(live).testTag("noise-slider").semantics {
                     contentDescription = "Noise control"
                     stateDescription = noiseDescription(strength)
                 },
@@ -116,13 +314,14 @@ fun NoiseCard(state: HeadphoneState, actions: Actions) {
             SwitchRow("Wind Block", "Cuts wind noise outdoors.", audio.wind, "wind-block") { on ->
                 actions.setAudio { it.copy(wind = on) }
             }
-            SwitchRow("Noise cancelling", "Turns noise cancelling on or off.", audio.anc, "noise-cancelling") { on ->
+            SwitchRow("Noise cancelling", null, audio.anc, "noise-cancelling") { on ->
                 actions.setAudio { it.copy(anc = on) }
             }
             SubHeading("Spatial audio")
-            for ((label, spatial, description) in spatialOptions) {
-                RadioRow(label, description, audio.spatial == spatial, "spatial-${label.lowercase()}", { actions.setAudio { it.copy(spatial = spatial) } })
+            ChoiceChips(spatialOptions.map { it.first to it.second }, audio.spatial, "spatial") { spatial ->
+                actions.setAudio { it.copy(spatial = spatial) }
             }
+            spatialOptions.first { it.second == audio.spatial }.third?.let { Description(it, Pad) }
         }
     }
 }
@@ -132,8 +331,8 @@ fun NoiseCard(state: HeadphoneState, actions: Actions) {
 fun SoundCard(state: HeadphoneState, actions: Actions) {
     if (state.eq == Section.Unsupported) return
     SettingsCard("Equaliser", "card-sound") {
-        Description("Shapes bass, mids and treble.", Pad)
         SectionContent(state.eq, "Equaliser", "eq", actions.retry) { bands ->
+            val live = LocalLive.current
             val preset = EqPreset.match(bands)
             var customOpen by rememberSaveable { mutableStateOf(false) }
             val custom = preset == null || customOpen
@@ -142,14 +341,23 @@ fun SoundCard(state: HeadphoneState, actions: Actions) {
                     FilterChip(
                         selected = !custom && preset == p,
                         onClick = {
-                            customOpen = false
-                            actions.setEq(p.bass, p.mid, p.treble)
+                            if (live) {
+                                customOpen = false
+                                actions.setEq(p.bass, p.mid, p.treble)
+                            }
                         },
                         label = { Text(p.label) },
-                        modifier = Modifier.testTag("eq-${p.name.lowercase()}"),
+                        leadingIcon = if (!custom && preset == p) ({ ChipCheck() }) else null,
+                        modifier = Modifier.offline(live).testTag("eq-${p.name.lowercase()}"),
                     )
                 }
-                FilterChip(selected = custom, onClick = { customOpen = true }, label = { Text("Custom") }, modifier = Modifier.testTag("eq-custom"))
+                FilterChip(
+                    selected = custom,
+                    onClick = { if (live) customOpen = true },
+                    label = { Text("Custom") },
+                    leadingIcon = if (custom) ({ ChipCheck() }) else null,
+                    modifier = Modifier.offline(live).testTag("eq-custom"),
+                )
             }
             if (custom) for (band in bands.sortedBy { it.bandId }) EqSlider(band, actions)
         }
@@ -164,6 +372,7 @@ private fun EqSlider(band: EqBand, actions: Actions) {
         2 -> "Treble"
         else -> "Band ${band.bandId}"
     }
+    val live = LocalLive.current
     var dragging by remember(band.current) { mutableStateOf<Float?>(null) }
     val shown = dragging?.roundToInt() ?: band.current
     val signed = if (shown > 0) "+$shown" else "$shown"
@@ -174,7 +383,7 @@ private fun EqSlider(band: EqBand, actions: Actions) {
         }
         Slider(
             value = dragging ?: band.current.toFloat(),
-            onValueChange = { dragging = it },
+            onValueChange = { if (live) dragging = it },
             onValueChangeFinished = {
                 val wanted = dragging?.roundToInt()
                 dragging = null
@@ -182,7 +391,7 @@ private fun EqSlider(band: EqBand, actions: Actions) {
             },
             valueRange = band.min.toFloat()..band.max.toFloat(),
             steps = (band.max - band.min - 1).coerceAtLeast(0),
-            modifier = Modifier.fillMaxWidth().testTag("eq-band-${band.bandId}").semantics {
+            modifier = Modifier.fillMaxWidth().offline(live).testTag("eq-band-${band.bandId}").semantics {
                 contentDescription = name
                 stateDescription = "$name $signed"
             },
@@ -197,12 +406,10 @@ fun CallsCard(state: HeadphoneState, actions: Actions) {
         SectionContent(state.selfVoice, "Self Voice", "self-voice", actions.retry) { selfVoice ->
             SubHeading("Self Voice")
             Description("How much of your own voice you hear on calls.", Pad)
-            for ((label, level) in selfVoiceOptions) {
-                RadioRow(label, null, selfVoice.level == level, "self-voice-${label.lowercase()}", { actions.setSelfVoice(level) })
-            }
+            ChoiceChips(selfVoiceOptions, selfVoice.level, "self-voice", actions.setSelfVoice)
         }
         SectionContent(state.autoAnswer, "Auto answer", "auto-answer", actions.retry) { on ->
-            SwitchRow("Auto answer", "Answers incoming calls without a tap.", on, "auto-answer", actions.setAutoAnswer)
+            SwitchRow("Auto answer", null, on, "auto-answer", actions.setAutoAnswer)
         }
     }
 }
@@ -225,36 +432,13 @@ fun DeviceCard(state: HeadphoneState, actions: Actions, onRename: () -> Unit, on
                 Description("Connected to two devices at once.")
             }
         }
-        SectionContent(state.name, "Name", "name-row", actions.retry) { name ->
-            ActionRow("Name: $name", "The name other devices see.", "Rename", "rename", onRename)
-        }
-        ActionRow("Pairing mode", "Lets a new device pair. The headphones disconnect from this phone.", "Start pairing mode", "pairing-mode", onPairing)
-        ActionRow("Power off", "Turns the headphones off.", "Power off", "power-off", onPowerOff)
-    }
-}
-
-@Composable
-fun StatusCard(link: LinkState, actions: Actions) {
-    val (title, text) = when (link) {
-        LinkState.BluetoothOff -> "Bluetooth is off" to "Turn on Bluetooth to use your headphones."
-        LinkState.NotPaired -> "Headphones aren't paired" to "Pair your QC Ultra headphones in Bluetooth settings first."
-        LinkState.Disconnected -> "Not connected" to "The app connects when your phone connects to the headphones."
-        LinkState.Connecting -> "Connecting…" to "Reading the headphones' settings."
-        LinkState.Connected -> "Connected" to ""
-        LinkState.AnotherApp -> "Another app is using your headphones" to "Only one app can control them at a time. Tap Reconnect to take over."
-        LinkState.HeadphonesOff -> "Headphones off" to "The app connects again when they're back on."
-        LinkState.PairingMode -> "Pairing mode" to "The headphones are ready to pair with a new device. The app connects again afterwards."
-        LinkState.ConnectFailed -> "Couldn't connect" to "The headphones didn't answer."
-        LinkState.Lost -> "Connection lost" to "The headphones stopped answering."
-    }
-    SettingsCard(title, "status-card") {
-        Description(text, Pad)
-        when (link) {
-            LinkState.AnotherApp, LinkState.ConnectFailed, LinkState.Lost ->
-                ActionButton("Reconnect", "reconnect", actions.reconnect)
-            LinkState.BluetoothOff, LinkState.NotPaired ->
-                ActionButton("Open Bluetooth settings", "open-bluetooth", actions.openBluetoothSettings)
-            else -> Unit
+        // Actions on the headphones themselves only make sense while connected.
+        if (LocalLive.current) {
+            SectionContent(state.name, "Name", "name-row", actions.retry) { name ->
+                NavRow(R.drawable.ic_edit, "Name: $name", "The name other devices see.", "rename", onRename)
+            }
+            NavRow(R.drawable.ic_bluetooth, "Pairing mode", "Lets a new device pair. The headphones disconnect from this phone.", "pairing-mode", onPairing)
+            NavRow(R.drawable.ic_power, "Power off", null, "power-off", onPowerOff)
         }
     }
 }
@@ -263,13 +447,8 @@ fun StatusCard(link: LinkState, actions: Actions) {
 fun BoseBanner(actions: Actions) {
     SettingsCard("Bose app installed", "bose-banner") {
         Description("The Bose app can take over the connection. If this app stops responding, force stop the Bose app.", Pad)
-        ActionButton("Open Bose app settings", "open-bose-settings", actions.openBoseAppSettings)
+        FilledTonalButton(onClick = actions.openBoseAppSettings, modifier = Pad.testTag("open-bose-settings")) {
+            Text("Open Bose app settings")
+        }
     }
 }
-
-@Composable
-private fun ActionButton(label: String, tag: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick, modifier = Modifier.padding(horizontal = 4.dp).testTag(tag)) { Text(label) }
-}
-
-fun linkText(link: LinkState): String = NotificationModel.linkText(link)

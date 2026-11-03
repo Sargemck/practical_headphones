@@ -56,13 +56,23 @@ data class HeadphoneState(
     val autoAnswer: Section<Boolean> = Section.Loading,
     val multipoint: Section<Multipoint> = Section.Loading,
     val boseAppInstalled: Boolean = false,
+    /**
+     * The values last read while connected, kept after the link drops so the UI can show them
+     * dimmed. Null until something has loaded in this process. Never shown as live values.
+     */
+    val lastKnown: HeadphoneState? = null,
 ) {
-    /** Every section reset to [Section.Loading], keeping the link and the Bose app flag. */
-    fun cleared(): HeadphoneState = HeadphoneState(link = link, boseAppInstalled = boseAppInstalled)
+    /** Every section reset to [Section.Loading], keeping the link, the Bose app flag and a snapshot in [lastKnown]. */
+    fun cleared(): HeadphoneState =
+        HeadphoneState(link = link, boseAppInstalled = boseAppInstalled, lastKnown = snapshot() ?: lastKnown)
+
+    private fun snapshot(): HeadphoneState? =
+        if (sections.any { it is Section.Loaded }) copy(lastKnown = null) else null
+
+    private val sections get() = listOf(name, firmware, battery, modes, audio, eq, selfVoice, autoPlayPause, autoAnswer, multipoint)
 
     val fullyLoaded: Boolean
-        get() = listOf(name, firmware, battery, modes, audio, eq, selfVoice, autoPlayPause, autoAnswer, multipoint)
-            .none { it is Section.Loading }
+        get() = sections.none { it is Section.Loading }
 
     /** One-line dump for debug logs. Leaves out the product name and paired-device details. */
     fun summary(): String = buildString {

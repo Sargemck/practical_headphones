@@ -10,8 +10,11 @@ import io.github.sargemck.practicalheadphones.link.BmapLog
 import io.github.sargemck.practicalheadphones.state.Connector
 import io.github.sargemck.practicalheadphones.state.HeadphoneController
 import io.github.sargemck.practicalheadphones.state.HeadphoneRepository
+import io.github.sargemck.practicalheadphones.state.LinkState
 import io.github.sargemck.practicalheadphones.state.LiveUpdates
 import io.github.sargemck.practicalheadphones.state.SystemLink
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /** Debug builds only. The release source set has the same object doing nothing. */
 object DebugEntry {
@@ -25,6 +28,8 @@ object DebugEntry {
     /**
      * Demo mode (`adb shell am start ... --ez demo true`): a repository over [FakeBmapDevice],
      * reported connected. The service isn't started and the headphones aren't touched.
+     * `--es demoLink away` reports the headphones gone once everything has loaded (the last known
+     * view); `--es demoLink never` never reports them connected (first run).
      */
     fun demoController(activity: ComponentActivity): HeadphoneController? {
         if (!activity.intent.getBooleanExtra("demo", false)) return null
@@ -35,7 +40,18 @@ object DebugEntry {
             log = { BmapLog.d("DEMO $it") },
             live = LiveUpdates(polling = false),
         )
-        repository.onSystemLink(SystemLink(bluetoothOn = true, paired = true, connected = true))
+        val on = SystemLink(bluetoothOn = true, paired = true, connected = true)
+        when (activity.intent.getStringExtra("demoLink")) {
+            "never" -> repository.onSystemLink(on.copy(connected = false))
+            "away" -> {
+                repository.onSystemLink(on)
+                activity.lifecycleScope.launch {
+                    repository.state.first { it.link == LinkState.Connected && it.fullyLoaded }
+                    repository.onSystemLink(on.copy(connected = false))
+                }
+            }
+            else -> repository.onSystemLink(on)
+        }
         return repository
     }
 }

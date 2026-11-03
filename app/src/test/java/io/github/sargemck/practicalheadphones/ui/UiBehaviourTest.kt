@@ -88,10 +88,21 @@ class UiBehaviourTest {
     @Test
     fun `the star toggles that mode's favourite`() {
         show()
+        compose.onNodeWithTag("all-modes").performClick()
         val star = compose.onNodeWithTag("favourite-5")
         assertEquals("Relax, not a favourite", label(star.fetchSemanticsNode()))
         star.performClick()
         assertEquals(listOf("favourite 5"), calls)
+    }
+
+    @Test
+    fun `the card shows four modes and the sheet shows all of them`() {
+        show()
+        for (i in listOf(0, 1, 2, 4)) compose.onNodeWithTag("mode-$i").assertExists()
+        compose.onNodeWithTag("mode-5").assertDoesNotExist()
+        compose.onNodeWithTag("all-modes").performClick()
+        compose.onNodeWithTag("sheet-mode-5").performClick()
+        assertEquals(listOf("mode 5"), calls)
     }
 
     @Test
@@ -137,6 +148,28 @@ class UiBehaviourTest {
         show(Samples.link(LinkState.AnotherApp))
         compose.onNodeWithTag("reconnect").performClick()
         assertEquals(listOf("reconnect"), calls)
+    }
+
+    @Test
+    fun `while disconnected the last known settings show but can't be changed`() {
+        show(Samples.offline)
+        compose.onNodeWithTag("mode-4").assertIsNotEnabled().performClick()
+        compose.onNodeWithTag("wind-block").assertIsNotEnabled()
+        compose.onNodeWithTag("self-voice-low").assertIsNotEnabled()
+        compose.onNodeWithTag("all-modes").assertIsNotEnabled().performClick()
+        compose.onNodeWithTag("all-modes-sheet").assertDoesNotExist()
+        compose.onNodeWithTag("eq-voice").assertIsNotEnabled().performClick()
+        compose.onNodeWithTag("noise-slider").assertIsNotEnabled()
+        compose.onNodeWithTag("rename").assertDoesNotExist()
+        compose.onNodeWithTag("power-off").assertDoesNotExist()
+        compose.onNodeWithTag("open-bluetooth").assertIsEnabled()
+        assertEquals(emptyList<String>(), calls)
+    }
+
+    @Test
+    fun `no text overflows at font scale 2 while disconnected`() {
+        show(Samples.offline, Variant.FONT2)
+        assertNoOverflow()
     }
 
     // Text and accessibility, at the largest font scale
@@ -192,6 +225,7 @@ class UiBehaviourTest {
     @Test
     fun `every clickable node and slider has a label`() {
         show(Samples.connected.copy(boseAppInstalled = true))
+        compose.onNodeWithTag("all-modes").performClick() // the sheet's rows and stars too
         val nodes = compose.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(SemanticsActions.SetProgress))
             .fetchSemanticsNodes()
         assertTrue(nodes.size > 30)
@@ -203,6 +237,7 @@ class UiBehaviourTest {
     fun `icon-only buttons are labelled`() {
         show()
         assertEquals("About", label(compose.onNodeWithTag("about").fetchSemanticsNode()))
+        compose.onNodeWithTag("all-modes").performClick()
         assertEquals("Quiet, favourite", label(compose.onNodeWithTag("favourite-0").fetchSemanticsNode()))
         compose.onNodeWithTag("about").performClick()
         assertEquals("Back", label(compose.onNodeWithTag("back").fetchSemanticsNode()))
