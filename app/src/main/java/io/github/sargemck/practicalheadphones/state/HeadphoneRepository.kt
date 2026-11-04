@@ -11,6 +11,10 @@ import io.github.sargemck.practicalheadphones.bmap.EqBandSetting
 import io.github.sargemck.practicalheadphones.bmap.Favourites
 import io.github.sargemck.practicalheadphones.bmap.Headphones
 import io.github.sargemck.practicalheadphones.bmap.ModeConfig
+import io.github.sargemck.practicalheadphones.bmap.ModesSnapshot
+import io.github.sargemck.practicalheadphones.bmap.ProfileError
+import io.github.sargemck.practicalheadphones.bmap.ProfileSettings
+import io.github.sargemck.practicalheadphones.bmap.Profiles
 import io.github.sargemck.practicalheadphones.bmap.QcUltra2
 import io.github.sargemck.practicalheadphones.bmap.ReadFeature
 import io.github.sargemck.practicalheadphones.bmap.SelfVoiceLevel
@@ -187,11 +191,15 @@ class HeadphoneRepository(
             _state.update { it.copy(modes = snapshot.cast(), audio = snapshot.cast()) }
             return
         }
-        val value = snapshot.value
+        applyModes(h, snapshot.value)
+    }
+
+    /** Builds the modes and audio sections from a drain, reading what the drain left out. */
+    private suspend fun applyModes(h: Headphones, value: ModesSnapshot) {
         val current = value.currentMode?.let { Section.Loaded(it) } ?: attempt { h.read(QcUltra2.currentMode) }
         val favourites = value.favourites ?: attempt { h.read(QcUltra2.favourites) }.valueOrNull()
         val modes = when (current) {
-            is Section.Loaded -> Section.Loaded(ModesSection(value.modes.filter(::isConfigured), current.value, favourites))
+            is Section.Loaded -> Section.Loaded(ModesSection(value.modes.filter(Profiles::isConfigured), current.value, favourites))
             else -> current.cast()
         }
         val audio = value.audioSettings?.let { Section.Loaded(it) } ?: attempt { h.read(QcUltra2.audioSettings) }
@@ -536,6 +544,100 @@ class HeadphoneRepository(
         }
     }
 
+    // Custom modes
+
+    /** Creates a mode in the first free slot from [settings], then switches to it. */
+    override fun createMode(name: String, settings: ProfileSettings) {
+        val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
+        val slot = Profiles.findFreeSlot(modes.modes) ?: return message("All custom modes are in use")
+        if (Profiles.nameProblem(name, modes.modes) != null) return message("That name can't be used")
+        val mode = ModeConfig(slot, 0, 0, editable = true, configured = true, name.trim(), settings.cnc, false, settings.spatial, settings.wind, settings.anc)
+        val optimistic = modes.copy(modes = (modes.modes + mode).sortedBy { it.index }, current = slot)
+        changeModes(optimistic, audioOf(mode), "Couldn't create the mode") { h ->
+            h.selectMode(h.createProfile(name, settings))
+        }
+    }
+
+    /**
+     * Renames and/or changes a custom mode. If it's the current mode, switches to it again so the
+     * change is heard now (rewriting the current slot isn't known to reach [31.10]).
+     */
+    override fun updateMode(index: Int, name: String, settings: ProfileSettings) {
+        val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
+        val old = modes.modes.firstOrNull { it.index == index } ?: return message("That mode doesn't exist")
+        if (index in QcUltra2.presetSlots) return message("Bose presets can't be changed")
+        if (Profiles.nameProblem(name, modes.modes, except = index) != null) return message("That name can't be used")
+        val mode = old.copy(name = name.trim(), cnc = settings.cnc, spatial = settings.spatial, wind = settings.wind, anc = settings.anc)
+        val current = modes.current == index
+        val optimistic = modes.copy(modes = modes.modes.map { if (it.index == index) mode else it })
+        changeModes(optimistic, if (current) audioOf(mode) else null, "Couldn't save the mode") { h ->
+            h.updateMode(index, rename = name, settings = settings)
+            if (current) h.selectMode(index)
+        }
+    }
+
+    /**
+     * Deletes a custom mode. If it's current, switches to Quiet first. If it's starred, unstars it
+     * first, so the headphones' button never cycles to an empty slot.
+     */
+    override fun deleteMode(index: Int) {
+        val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
+        if (modes.modes.none { it.index == index }) return message("That mode doesn't exist")
+        if (index in QcUltra2.presetSlots) return message("Bose presets can't be deleted")
+        val current = modes.current == index
+        val fallback = modes.modes.firstOrNull { it.index == QUIET }
+        val favourites = modes.favourites?.takeIf { index in it.slots }?.let { it.copy(slots = it.slots - index) }
+        val optimistic = modes.copy(
+            modes = modes.modes.filter { it.index != index },
+            current = if (current) QUIET else modes.current,
+            favourites = favourites ?: modes.favourites,
+        )
+        changeModes(optimistic, if (current) fallback?.let(::audioOf) else null, "Couldn't delete the mode") { h ->
+            if (current) h.selectMode(QUIET)
+            if (favourites != null) h.write(QcUltra2.Write.favourites, favourites)
+            h.deleteMode(index)
+        }
+    }
+
+    /**
+     * Optimistic mode change: shows [optimistic] (and [audio], if the change switches mode), runs
+     * [work], then reloads modes and audio from a fresh drain whether it worked or not, since a
+     * failure can come after some writes landed. Polls are held off for the whole change.
+     */
+    private fun changeModes(optimistic: ModesSection, audio: AudioSettings?, failure: String, work: suspend (Headphones) -> Unit) {
+        val h = headphones ?: return message("Not connected")
+        val previous = _state.value
+        started(Key.Modes)
+        started(Key.Audio)
+        _state.update { s -> s.copy(modes = Section.Loaded(optimistic), audio = audio?.let { Section.Loaded(it) } ?: s.audio) }
+        launchInSession {
+            active(Key.Modes) {
+                active(Key.Audio) {
+                    try {
+                        work(h)
+                    } catch (e: BmapException) {
+                        rollBack(previous, failure, e)
+                    } catch (e: ProfileError) {
+                        rollBack(previous, failure, e)
+                    }
+                    try {
+                        applyModes(h, h.allModes())
+                    } catch (e: BmapException) {
+                        log("modes reload failed: ${e.message}")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun rollBack(previous: HeadphoneState, failure: String, e: Exception) {
+        _state.update { it.copy(modes = previous.modes, audio = previous.audio) }
+        message(failure)
+        log("mode change failed: ${e.message}")
+    }
+
+    private fun audioOf(mode: ModeConfig) = AudioSettings(mode.cnc, autoCnc = false, mode.spatial, mode.wind, mode.anc)
+
     // Commands that drop the link. Wired for M3; exercised only in H1.
 
     override fun powerOff() = command(Command.PowerOff) { it.powerOff() }
@@ -579,6 +681,8 @@ class HeadphoneRepository(
         _messages.tryEmit(UserMessage(text))
     }
 
-    private fun isConfigured(mode: ModeConfig): Boolean =
-        mode.name.isNotBlank() && !mode.name.trim().equals("None", ignoreCase = true)
+    private companion object {
+        /** Slot 0, the Quiet preset: where deleting the current mode leaves the headphones. */
+        const val QUIET = 0
+    }
 }

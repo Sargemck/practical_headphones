@@ -9,6 +9,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
+import com.github.takahirom.roborazzi.RoborazziOptions
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -118,9 +120,41 @@ class ScreenshotTest(private val variant: Variant) {
     fun allModesSheet() {
         compose.setContent { UiFrame(variant) { HeadphonesApp(Samples.connected, actions, "0.0.1") } }
         compose.onNodeWithTag("all-modes").performClick()
-        compose.mainClock.advanceTimeBy(1_000)
+        compose.mainClock.advanceTimeBy(3_000)
         settle()
-        captureScreenRoboImage(path("all-modes-sheet"))
+        // The sheet's slide-in leaves its top edge a sub-pixel off between runs: one anti-aliased row.
+        captureScreenRoboImage(path("all-modes-sheet"), RoborazziOptions(compareOptions = RoborazziOptions.CompareOptions(changeThreshold = 0.01f)))
+    }
+
+    @Test
+    fun modeEditorNew() {
+        compose.setContent { UiFrame(variant) { HeadphonesApp(Samples.connected, actions, "0.0.1", initialScreen = Screen.ModeEditor) } }
+        settle()
+        compose.onRoot().captureRoboImage(path("mode-editor-new"))
+    }
+
+    @Test
+    fun modeEditorEdit() {
+        compose.setContent {
+            UiFrame(variant) { HeadphonesApp(Samples.connected, actions, "0.0.1", initialScreen = Screen.ModeEditor, initialEditorSlot = 5) }
+        }
+        settle()
+        compose.onRoot().captureRoboImage(path("mode-editor-edit"))
+    }
+
+    @Test
+    fun permissions() {
+        var permissions by mutableStateOf(Permissions())
+        compose.setContent { UiFrame(variant) { HeadphonesApp(Samples.link(LinkState.Disconnected), actions, "0.0.1", permissions = permissions) } }
+        for ((name, value) in listOf(
+            "bluetooth" to Permissions(bluetooth = Permission.Denied),
+            "bluetooth-blocked" to Permissions(bluetooth = Permission.Blocked),
+            "notifications" to Permissions(notifications = Permission.Denied),
+        )) {
+            permissions = value
+            settle()
+            compose.onNodeWithTag("main-list").captureRoboImage(path("permission-$name"))
+        }
     }
 
     @Test

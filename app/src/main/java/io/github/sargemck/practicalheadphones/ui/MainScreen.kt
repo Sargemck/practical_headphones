@@ -53,10 +53,14 @@ fun HeadphonesApp(
     snackbar: SnackbarHostState = remember { SnackbarHostState() },
     initialScreen: Screen = Screen.Main,
     initialDialog: DeviceDialog? = null,
+    permissions: Permissions = Permissions(),
+    initialEditorSlot: Int? = null,
 ) {
     var screen by rememberSaveable { mutableStateOf(initialScreen) }
     var dialog by rememberSaveable { mutableStateOf(initialDialog) }
-    BackHandler(enabled = screen == Screen.About) { screen = Screen.Main }
+    // The mode the editor is open for, or null for a new mode.
+    var editorSlot by rememberSaveable { mutableStateOf(initialEditorSlot) }
+    BackHandler(enabled = screen != Screen.Main) { screen = Screen.Main }
     // Changes the bar's shade while content scrolls under it.
     val scroll = TopAppBarDefaults.pinnedScrollBehavior()
     Scaffold(
@@ -77,22 +81,46 @@ fun HeadphonesApp(
                     scrollBehavior = scroll,
                     navigationIcon = { BackIcon { screen = Screen.Main } },
                 )
+                Screen.ModeEditor -> TopAppBar(
+                    title = { Text(if (editorSlot == null) "New mode" else "Edit mode") },
+                    scrollBehavior = scroll,
+                    navigationIcon = { BackIcon { screen = Screen.Main } },
+                )
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         when (screen) {
-            Screen.Main -> MainContent(state, actions, padding) { dialog = it }
+            Screen.Main -> MainContent(
+                state,
+                actions,
+                padding,
+                permissions,
+                openDialog = { dialog = it },
+                edit = { slot ->
+                    editorSlot = slot
+                    screen = Screen.ModeEditor
+                },
+            )
             Screen.About -> AboutContent(state, appVersion, actions, padding)
+            Screen.ModeEditor -> ModeEditorContent(state, editorSlot, actions, padding) { screen = Screen.Main }
         }
     }
     DeviceDialogs(dialog, state.name.valueOrNull(), actions) { dialog = null }
 }
 
-enum class Screen { Main, About }
+enum class Screen { Main, About, ModeEditor }
 
 @Composable
-private fun MainContent(state: HeadphoneState, actions: Actions, padding: PaddingValues, openDialog: (DeviceDialog) -> Unit) {
+private fun MainContent(
+    state: HeadphoneState,
+    actions: Actions,
+    padding: PaddingValues,
+    permissions: Permissions,
+    openDialog: (DeviceDialog) -> Unit,
+    edit: (Int?) -> Unit,
+) {
+    var notificationsDismissed by rememberSaveable { mutableStateOf(false) }
     val direction = LocalLayoutDirection.current
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("main-list"),
@@ -104,7 +132,10 @@ private fun MainContent(state: HeadphoneState, actions: Actions, padding: Paddin
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { HeroCard(state, actions) }
+        item { HeroCard(state, actions, permissions.bluetooth) }
+        if (permissions.bluetooth == Permission.Granted && permissions.notifications != Permission.Granted && !notificationsDismissed) {
+            item { NotificationsBanner(permissions.notifications, actions) { notificationsDismissed = true } }
+        }
         if (state.boseAppInstalled) item { BoseBanner(actions) }
         val live = state.link == LinkState.Connected
         // While disconnected, the last known settings show dimmed and disabled.
@@ -127,7 +158,7 @@ private fun MainContent(state: HeadphoneState, actions: Actions, padding: Paddin
             for ((title, text) in previewSections) section { PreviewCard(title, text) }
             return@LazyColumn
         }
-        section { ModesCard(shown, actions) }
+        section { ModesCard(shown, actions, edit) }
         section { NoiseCard(shown, actions) }
         section { SoundCard(shown, actions) }
         section { CallsCard(shown, actions) }

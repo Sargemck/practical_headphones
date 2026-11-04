@@ -116,7 +116,7 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 - A mode switch changes the live audio settings (M0 E5: spatial went from 02 to 00 on START 31.3). After START 31.3 succeeds, re-read 31.10 before updating state. Never keep the cached 31.10 across a mode switch.
 
 **Mode config [31.6]**
-- STATUS (48 B): `[0]` idx, `[1:3]` voice prompt, `[3]` editable, `[4]` configured, `[5]` ?, `[6:38]` name (UTF-8, NUL padded), `[38:42]` ?, `[42]` cnc, `[43]` autoCnc, `[44]` spatial, `[45]` wind, `[46]` ?, `[47]` anc.
+- STATUS (48 B): `[0]` idx, `[1:3]` voice prompt, `[3]` editable, `[4]` configured, `[5]` ?, `[6:38]` name (UTF-8, NUL padded), `[38:42]` ?, `[42]` cnc, `[43]` autoCnc, `[44]` spatial, `[45]` ? (1 on custom slots), `[46]` wind, `[47]` anc. Wind is `[46]`, not bosectl's `[45]` (M4 FINDINGS).
 - SETGET (40 B): idx, prompt b1, prompt b2, name (32 B), cnc, autoCnc, spatial, wind, anc.
 - Presets 0..3 (Quiet, Aware, Immersion, Cinema) are locked (Runtime error 8). Custom slots 4..10 are writable.
 - Create/update/delete logic: port `create_profile`, `update_profile`, `delete_profile`, `_find_free_slot` from `connection.py`.

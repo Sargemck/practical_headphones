@@ -97,7 +97,7 @@ class ParsersTest {
         assertEquals(
             ModeConfig(
                 index = 5, promptB1 = 0, promptB2 = 14, editable = true, configured = true, name = "Relax",
-                cnc = 9, autoCnc = false, spatial = Spatial.OFF, wind = true, anc = true,
+                cnc = 9, autoCnc = false, spatial = Spatial.OFF, wind = false, anc = true,
             ),
             modes[5],
         )

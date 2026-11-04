@@ -1,6 +1,7 @@
 package io.github.sargemck.practicalheadphones.state
 
 import io.github.sargemck.practicalheadphones.bmap.AudioSettings
+import io.github.sargemck.practicalheadphones.bmap.ProfileSettings
 import io.github.sargemck.practicalheadphones.bmap.SelfVoiceLevel
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +22,9 @@ interface HeadphoneController {
     fun setAutoPlayPause(on: Boolean)
     fun setAutoAnswer(on: Boolean)
     fun setName(name: String)
+    fun createMode(name: String, settings: ProfileSettings)
+    fun updateMode(index: Int, name: String, settings: ProfileSettings)
+    fun deleteMode(index: Int)
     fun powerOff()
     fun pairingMode()
 }

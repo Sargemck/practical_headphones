@@ -65,7 +65,7 @@ class ProfilesTest {
     @Test
     fun `update keeps prompt bytes and unchanged fields`() {
         val write = Profiles.update(modes, "relax", rename = "Calm")
-        assertEquals(ModeConfigWrite(5, 0, 14, "Calm", 9, Spatial.OFF, wind = true, anc = true), write)
+        assertEquals(ModeConfigWrite(5, 0, 14, "Calm", 9, Spatial.OFF, wind = false, anc = true), write)
         val changed = Profiles.update(modes, "Relax", settings = settings)
         assertEquals(ModeConfigWrite(5, 0, 14, "Relax", 4, Spatial.FIXED_TO_ROOM, wind = false, anc = true), changed)
     }
@@ -88,10 +88,52 @@ class ProfilesTest {
     }
 
     @Test
-    fun `delete writes the None sentinel`() {
+    fun `delete writes the None sentinel with a factory empty slot's settings`() {
         assertEquals(
-            ModeConfigWrite(7, 0, 0, "None", 0, Spatial.OFF, wind = false, anc = false),
+            ModeConfigWrite(7, 0, 0, "None", 10, Spatial.OFF, wind = false, anc = true),
             Profiles.delete(modes, "Run"),
         )
+    }
+
+    @Test
+    fun `each name problem is reported`() {
+        val cases = mapOf(
+            " " to NameProblem.Blank,
+            "x".repeat(32) to NameProblem.TooLong,
+            "NONE" to NameProblem.Reserved,
+            "aware" to NameProblem.Preset,
+            " relax " to NameProblem.Duplicate,
+        )
+        for ((name, problem) in cases) {
+            assertEquals(problem, Profiles.nameProblem(name, modes), name)
+            assertEquals(problem, assertThrows<ProfileError.InvalidName>(name) { Profiles.create(modes, name, settings) }.problem)
+        }
+        assertNull(Profiles.nameProblem("Hike", modes))
+    }
+
+    @Test
+    fun `a free slot's None name isn't a duplicate, and a mode may keep its own name`() {
+        assertEquals(NameProblem.Reserved, Profiles.nameProblem("None", modes))
+        assertNull(Profiles.nameProblem("Relax", modes, except = 5))
+        assertEquals(NameProblem.Duplicate, Profiles.nameProblem("Relax", modes, except = 4))
+    }
+
+    @Test
+    fun `rename to another custom mode's name is refused`() {
+        val e = assertThrows<ProfileError.InvalidName> { Profiles.update(modes, 4, rename = "run") }
+        assertEquals(NameProblem.Duplicate, e.problem)
+    }
+
+    @Test
+    fun `update and delete by slot match the name-based versions`() {
+        assertEquals(Profiles.update(modes, "Relax", rename = "Calm", settings = settings), Profiles.update(modes, 5, rename = "Calm", settings = settings))
+        assertEquals(Profiles.delete(modes, "Run"), Profiles.delete(modes, 7))
+    }
+
+    @Test
+    fun `by slot, presets are locked and free slots aren't found`() {
+        assertThrows<ProfileError.PresetLocked> { Profiles.update(modes, 2, settings = settings) }
+        assertThrows<ProfileError.PresetLocked> { Profiles.delete(modes, 0) }
+        assertThrows<ProfileError.NotFound> { Profiles.delete(modes, 9) }
     }
 }

@@ -107,7 +107,10 @@ object Parsers {
     /**
      * 48-byte STATUS: `[0]` idx, `[1:3]` prompt, `[3]` editable, `[4]` configured, `[5]` ?,
      * `[6:38]` name (UTF-8, NUL padded), `[38:42]` ?, `[42]` cnc, `[43]` autoCnc,
-     * `[44]` spatial, `[45]` wind, `[46]` ?, `[47]` anc.
+     * `[44]` spatial, `[45]` ?, `[46]` wind, `[47]` anc.
+     * Wind is `[46]`, not `[45]` as bosectl has it (M4 device run, fw 10.12.12): `[46]` is set
+     * for exactly the modes whose switch turns Wind Block on, and follows a write; `[45]` is 1
+     * on every custom slot and 0 on presets.
      */
     fun modeConfig(p: ByteArray): ModeConfig {
         require(p.size >= 48) { "expected 48 bytes, got ${p.size}" }
@@ -123,7 +126,7 @@ object Parsers {
             cnc = p.u(42),
             autoCnc = p.u(43) != 0,
             spatial = spatial(p.u(44)),
-            wind = p.u(45) != 0,
+            wind = p.u(46) != 0,
             anc = p.u(47) != 0,
         )
     }

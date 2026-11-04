@@ -4,6 +4,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsNode
@@ -19,6 +22,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.isDialog
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextReplacement
@@ -57,11 +61,25 @@ class UiBehaviourTest {
         powerOff = { calls += "power off" },
         pairingMode = { calls += "pairing" },
         reconnect = { calls += "reconnect" },
+        createMode = { name, s -> calls += "create '$name' ${s.cnc}/${s.spatial}/${s.wind}/${s.anc}" },
+        updateMode = { i, name, s -> calls += "update $i '$name' ${s.cnc}/${s.spatial}/${s.wind}/${s.anc}" },
+        deleteMode = { calls += "delete $it" },
+        requestBluetooth = { calls += "request bluetooth" },
+        openAppSettings = { calls += "app settings" },
+        requestNotifications = { calls += "request notifications" },
     )
 
-    private fun show(state: HeadphoneState = Samples.connected, variant: Variant = Variant.LIGHT, screen: Screen = Screen.Main) {
+    private fun show(
+        state: HeadphoneState = Samples.connected,
+        variant: Variant = Variant.LIGHT,
+        screen: Screen = Screen.Main,
+        permissions: Permissions = Permissions(),
+        slot: Int? = null,
+    ) {
         RuntimeEnvironment.setFontScale(variant.fontScale)
-        compose.setContent { UiFrame(variant) { HeadphonesApp(state, actions, "0.0.1", initialScreen = screen) } }
+        compose.setContent {
+            UiFrame(variant) { HeadphonesApp(state, actions, "0.0.1", initialScreen = screen, permissions = permissions, initialEditorSlot = slot) }
+        }
     }
 
     // Controls
@@ -169,6 +187,112 @@ class UiBehaviourTest {
     @Test
     fun `no text overflows at font scale 2 while disconnected`() {
         show(Samples.offline, Variant.FONT2)
+        assertNoOverflow()
+    }
+
+    // Mode editor
+
+    private fun openSheet() {
+        compose.onNodeWithTag("all-modes").performClick()
+        compose.mainClock.advanceTimeBy(1_000)
+    }
+
+    @Test
+    fun `new mode starts from the current noise settings and needs a valid name`() {
+        show()
+        openSheet()
+        compose.onNodeWithTag("new-mode").performClick()
+        compose.onNodeWithTag("mode-editor").assertExists()
+        val save = compose.onNodeWithTag("mode-save")
+        save.assertIsNotEnabled()
+        val field = compose.onNodeWithTag("mode-name")
+        for ((name, error) in listOf("Relax" to "You already have a mode with this name.", "quiet" to "A Bose preset already has this name.")) {
+            field.performTextReplacement(name)
+            save.assertIsNotEnabled()
+            compose.onNodeWithText(error).assertExists()
+        }
+        field.performTextReplacement(" Hike ")
+        compose.onNodeWithTag("editor-wind-block").performClick()
+        save.assertIsEnabled().performClick()
+        val audio = Samples.connected.audio.valueOrNull()!!
+        assertEquals(listOf("create ' Hike ' ${audio.cnc}/${audio.spatial}/${!audio.wind}/${audio.anc}"), calls)
+        compose.onNodeWithTag("main-list").assertExists()
+    }
+
+    @Test
+    fun `presets have no edit button, custom modes do`() {
+        show()
+        openSheet()
+        compose.onNodeWithTag("edit-mode-0").assertDoesNotExist()
+        assertEquals("Edit Relax", label(compose.onNodeWithTag("edit-mode-5").fetchSemanticsNode()))
+    }
+
+    @Test
+    fun `editing saves only after a change, and keeps the slot`() {
+        show(screen = Screen.ModeEditor, slot = 5)
+        val save = compose.onNodeWithTag("mode-save")
+        save.assertIsNotEnabled()
+        compose.onNodeWithTag("mode-name").performTextReplacement("Calm")
+        save.assertIsEnabled().performClick()
+        val relax = Samples.connected.modes.valueOrNull()!!.modes.first { it.index == 5 }
+        assertEquals(listOf("update 5 'Calm' ${relax.cnc}/${relax.spatial}/${relax.wind}/${relax.anc}"), calls)
+    }
+
+    @Test
+    fun `delete asks first`() {
+        show(screen = Screen.ModeEditor, slot = 5)
+        compose.onNodeWithTag("mode-delete").performClick()
+        compose.onNodeWithTag("dialog-cancel").performClick()
+        assertEquals(emptyList<String>(), calls)
+        compose.onNodeWithTag("mode-delete").performClick()
+        compose.onNodeWithTag("delete-mode-confirm").performClick()
+        assertEquals(listOf("delete 5"), calls)
+    }
+
+    @Test
+    fun `with no free slot the sheet says so instead of offering a new mode`() {
+        val section = Samples.connected.modes.valueOrNull()!!
+        val template = section.modes.first { it.index == 5 }
+        val full = section.copy(modes = section.modes + (8..10).map { i -> template.copy(index = i, name = "Mode $i") })
+        show(Samples.connected.copy(modes = Section.Loaded(full)))
+        openSheet()
+        compose.onNodeWithTag("new-mode").assertDoesNotExist()
+        compose.onNodeWithTag("modes-full").assertExists()
+    }
+
+    @Test
+    fun `the editor can't save while disconnected`() {
+        show(Samples.connected.copy(link = LinkState.Lost), screen = Screen.ModeEditor, slot = 5)
+        compose.onNodeWithTag("mode-name").performTextReplacement("Calm")
+        compose.onNodeWithTag("mode-save").assertIsNotEnabled()
+        compose.onNodeWithTag("editor-offline").assertExists()
+    }
+
+    // Permissions
+
+    @Test
+    fun `missing Bluetooth permission asks, then points to settings once blocked`() {
+        var permissions by mutableStateOf(Permissions(bluetooth = Permission.Denied))
+        compose.setContent { UiFrame(Variant.LIGHT) { HeadphonesApp(Samples.link(LinkState.Disconnected), actions, "0.0.1", permissions = permissions) } }
+        compose.onNodeWithTag("allow-bluetooth").performClick()
+        permissions = Permissions(bluetooth = Permission.Blocked)
+        compose.onNodeWithTag("open-app-settings").performClick()
+        assertEquals(listOf("request bluetooth", "app settings"), calls)
+        compose.onNodeWithTag("notifications-banner").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the notifications banner can be turned on or dismissed`() {
+        show(permissions = Permissions(notifications = Permission.Denied))
+        compose.onNodeWithTag("notifications-allow").performClick()
+        compose.onNodeWithTag("notifications-dismiss").performClick()
+        compose.onNodeWithTag("notifications-banner").assertDoesNotExist()
+        assertEquals(listOf("request notifications"), calls)
+    }
+
+    @Test
+    fun `no text overflows at font scale 2 in the mode editor`() {
+        show(variant = Variant.FONT2, screen = Screen.ModeEditor, slot = 5)
         assertNoOverflow()
     }
 

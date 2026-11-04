@@ -9,6 +9,8 @@ import io.github.sargemck.practicalheadphones.bmap.ErrorCodes
 import io.github.sargemck.practicalheadphones.bmap.FakeBmapDevice
 import io.github.sargemck.practicalheadphones.bmap.Headphones
 import io.github.sargemck.practicalheadphones.bmap.Hex
+import io.github.sargemck.practicalheadphones.bmap.Parsers
+import io.github.sargemck.practicalheadphones.bmap.ProfileSettings
 import io.github.sargemck.practicalheadphones.bmap.QcUltra2
 import io.github.sargemck.practicalheadphones.bmap.Spatial
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -296,6 +298,119 @@ class HeadphoneRepositoryTest {
         runCurrent()
         assertEquals(setOf(1, 2, 4, 5, 6, 7), h.state.modes.valueOrNull()?.favourites?.slots)
         assertEquals(setOf(1, 2, 4, 5, 6, 7), QcUltra2.favourites.parse(h.fake.payload(QcUltra2.favourites.address)!!).slots)
+    }
+
+    // Custom modes
+
+    private val hike = ProfileSettings(cnc = 3, spatial = Spatial.FIXED_TO_ROOM, wind = true, anc = true)
+
+    private fun FakeBmapDevice.modeName(index: Int) = Parsers.modeConfig(mode(index)!!).name
+
+    @Test
+    fun `create shows the mode at once, writes the free slot and switches to it`() = runTest {
+        val h = connected()
+        h.repo.createMode(" Hike ", hike)
+        val optimistic = h.state.modes.valueOrNull()!!
+        assertEquals(8, optimistic.current)
+        assertEquals("Hike", optimistic.currentMode?.name)
+        assertEquals(AudioSettings(3, autoCnc = false, Spatial.FIXED_TO_ROOM, wind = true, anc = true), h.state.audio.valueOrNull())
+        runCurrent()
+        assertEquals("Hike", h.fake.modeName(8))
+        assertEquals("08 00", Hex.format(h.fake.received.last { it.address == QcUltra2.selectMode }.payload))
+        val reloaded = h.state.modes.valueOrNull()!!
+        assertEquals(8, reloaded.current)
+        assertEquals(listOf(0, 1, 2, 3, 4, 5, 6, 7, 8), reloaded.modes.map { it.index })
+        assertEquals(emptyList<UserMessage>(), h.messages)
+    }
+
+    @Test
+    fun `with every slot in use, create sends nothing and says so`() = runTest {
+        val h = connected()
+        for (name in listOf("A", "B", "C")) {
+            h.repo.createMode(name, hike)
+            runCurrent()
+        }
+        val writes = h.fake.count(QcUltra2.modeConfig, BmapOp.SETGET)
+        h.repo.createMode("D", hike)
+        runCurrent()
+        assertEquals(writes, h.fake.count(QcUltra2.modeConfig, BmapOp.SETGET))
+        assertEquals(listOf(UserMessage("All custom modes are in use")), h.messages)
+    }
+
+    @Test
+    fun `a duplicate name is refused before anything is sent`() = runTest {
+        val h = connected()
+        h.repo.createMode("relax", hike)
+        runCurrent()
+        assertEquals(0, h.fake.count(QcUltra2.modeConfig, BmapOp.SETGET))
+        assertEquals(listOf(UserMessage("That name can't be used")), h.messages)
+    }
+
+    @Test
+    fun `editing the current mode switches to it again, editing another doesn't`() = runTest {
+        val h = connected()
+        h.repo.selectMode(5)
+        runCurrent()
+        val switches = h.fake.count(QcUltra2.selectMode, BmapOp.START)
+        h.repo.updateMode(5, "Calm", hike)
+        runCurrent()
+        assertEquals("Calm", h.fake.modeName(5))
+        assertEquals(switches + 1, h.fake.count(QcUltra2.selectMode, BmapOp.START))
+        assertEquals(AudioSettings(3, autoCnc = false, Spatial.FIXED_TO_ROOM, wind = true, anc = true), h.state.audio.valueOrNull())
+        h.repo.updateMode(7, "Jog", hike)
+        runCurrent()
+        assertEquals("Jog", h.fake.modeName(7))
+        assertEquals(switches + 1, h.fake.count(QcUltra2.selectMode, BmapOp.START))
+        assertEquals(5, h.state.modes.valueOrNull()?.current)
+    }
+
+    @Test
+    fun `deleting the current starred mode switches to Quiet and unstars it first`() = runTest {
+        val h = connected()
+        h.repo.selectMode(4)
+        runCurrent()
+        val before = h.fake.received.size
+        h.repo.deleteMode(4)
+        val optimistic = h.state.modes.valueOrNull()!!
+        assertEquals(0, optimistic.current)
+        assertFalse(4 in optimistic.favourites!!.slots)
+        assertFalse(optimistic.modes.any { it.index == 4 })
+        runCurrent()
+        val sent = h.fake.received.drop(before).filter { it.op != BmapOp.GET }.map { it.address to it.op }
+        assertEquals(
+            listOf(
+                QcUltra2.selectMode to BmapOp.START,
+                QcUltra2.favourites.address to BmapOp.SETGET,
+                QcUltra2.allModes to BmapOp.START,
+                QcUltra2.modeConfig to BmapOp.SETGET,
+                QcUltra2.allModes to BmapOp.START,
+            ),
+            sent,
+        )
+        assertEquals("None", h.fake.modeName(4))
+        assertFalse(4 in QcUltra2.favourites.parse(h.fake.payload(QcUltra2.favourites.address)!!).slots)
+        assertEquals(0, h.state.modes.valueOrNull()?.current)
+    }
+
+    @Test
+    fun `presets can't be edited or deleted`() = runTest {
+        val h = connected()
+        h.repo.updateMode(1, "Mine", hike)
+        h.repo.deleteMode(0)
+        runCurrent()
+        assertEquals(0, h.fake.count(QcUltra2.modeConfig, BmapOp.SETGET))
+        assertEquals(2, h.messages.size)
+    }
+
+    @Test
+    fun `a failed mode write rolls back, tells the user and reloads from the device`() = runTest {
+        val h = connected { forceError[QcUltra2.modeConfig to BmapOp.SETGET] = ErrorCodes.RUNTIME }
+        val before = h.state.modes
+        h.repo.createMode("Hike", hike)
+        runCurrent()
+        assertEquals(before, h.state.modes)
+        assertEquals(listOf(UserMessage("Couldn't create the mode")), h.messages)
+        assertEquals(0, h.fake.count(QcUltra2.selectMode, BmapOp.START))
     }
 
     // Live updates

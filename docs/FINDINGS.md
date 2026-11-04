@@ -477,3 +477,49 @@ Common to every entry below unless stated:
 
 - The headphones dropped both sources at the 10-minute idle mark (M0 E0) during setup. The spike wake brought back only the phone, and the PC reconnected when Baris started the game.
 - The transport's 3 s timeout fires on `[4.1]` because the connect finishes without a reply. A real feature can't retry it as a failed request: the retry would send a second connect.
+
+## M4 device session, 2026-11-04
+
+- Firmware: 10.12.12+ga927c9a. Phone: Pixel 10 Pro, Android 17 (SDK 37). Headphones on the desk.
+- The M4 build drove the app UI by resource id: create, star, delete, then a switch back to the starting mode.
+- Before and after snapshots of all 11 slots came from the logged [31.1] drains.
+
+### 2026-11-04 M4: mode writes on the device
+
+- Create "PHTest" from the current sound (Immersion: cnc 0, spatial 2, wind 0, noise cancelling 1), via New mode → Create mode:
+
+  ```text
+  31.6 SETGET 08 00 00 "PHTest"+NUL pad 00 00 02 00 01      (40 B)
+  31.6 STATUS 08 00 00 01 01 00 "PHTest"... 00 00 00 1d 00 00 02 01 00 01   (48 B, same shape as the drain)
+  31.3 START 08 00 -> RESULT 08, then 31.10 STATUS 00 00 02 00 01
+  ```
+
+  - The SETGET reply is the 48-byte STATUS, not an echo of the 40-byte write. `configured` went 0 → 1.
+- Star slot 8: SETGET `0b 01 d7`, STATUS `0b 01 d7`.
+  - The low byte `d7` (slots 0, 1, 2, 4, 6, 7) is what the Bose app had set, so the low byte is slots 0–7 and the high byte is slots 8–15. Byte order confirmed.
+- Delete slot 8 while it was current and starred. Sent in this order, each answered:
+  1. START 31.3 `00 00` (to Quiet)
+  2. SETGET 31.8 `0b 00 d7`
+  3. the 31.6 write with name `None`
+
+  Afterwards `configured` read 0, so the firmware clears it when the name goes back to `None`.
+- After, compared with before: slots 0–7, 9 and 10 are byte-identical, and favourites are `0b 00 d7` again. Then a switch back to Immersion.
+- Slot 8 differed only in cnc (10 → 0) and noise cancelling (1 → 0). bosectl's delete writes zeros, while a factory empty slot holds cnc 10, spatial 0, wind 0, noise cancelling 1. Delete now writes the factory values.
+
+### 2026-11-04 M4: Wind Block is byte 46 of the 31.6 STATUS, not 45
+
+- CLAUDE.md and bosectl had `[45]` wind, `[46]` ?. The device says otherwise:
+
+  ```text
+  bytes [38:48]   38 39 40 41 42 43 44 45 46 47
+  Quiet           00 00 00 00 00 00 00 00 00 01
+  Aware           00 00 00 02 0a 00 00 00 00 01
+  Walk            00 00 00 1d 00 00 00 01 01 01   (switching to Walk turns Wind Block on, M3)
+  Relax           00 00 00 1d 09 00 00 01 00 01
+  Run             00 00 00 1d 00 00 00 01 01 01
+  empty slot      00 00 00 1d 0a 00 00 01 00 01
+  PHTest (wind 0) 00 00 00 1d 00 00 02 01 00 01
+  ```
+
+- `[46]` follows the written wind value and is set for exactly the modes with Wind Block. `[45]` is 1 on every custom slot and 0 on presets, meaning unknown.
+- The parser now reads wind from `[46]`. The editor showed the wrong Wind Block for Relax and Commute before the fix.

@@ -16,6 +16,8 @@ import io.github.sargemck.practicalheadphones.state.HeadphoneRepository
 import io.github.sargemck.practicalheadphones.state.LinkState
 import io.github.sargemck.practicalheadphones.state.LiveUpdates
 import io.github.sargemck.practicalheadphones.state.SystemLink
+import io.github.sargemck.practicalheadphones.ui.Permission
+import io.github.sargemck.practicalheadphones.ui.Permissions
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -63,5 +65,20 @@ object DebugEntry {
             else -> repository.onSystemLink(on)
         }
         return repository
+    }
+
+    /**
+     * Demo mode only: `--es demoPerm bt|bt-blocked|notif|notif-blocked` shows that permission
+     * state on screen for screenshots. Nothing is requested.
+     */
+    fun demoPermissions(activity: ComponentActivity): Permissions? {
+        if (!activity.intent.getBooleanExtra("demo", false)) return null
+        return when (activity.intent.getStringExtra("demoPerm")) {
+            "bt" -> Permissions(bluetooth = Permission.Denied)
+            "bt-blocked" -> Permissions(bluetooth = Permission.Blocked)
+            "notif" -> Permissions(notifications = Permission.Denied)
+            "notif-blocked" -> Permissions(notifications = Permission.Blocked)
+            else -> null
+        }
     }
 }

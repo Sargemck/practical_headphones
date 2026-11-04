@@ -223,7 +223,11 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
             else -> error(address, ErrorCodes.FUNC_NOT_SUPPORTED)
         }
 
-    /** Presets 0..3 are locked (Runtime error 8). Echoes the 40-byte write, as bosectl's parser expects. */
+    /**
+     * Presets 0..3 are locked (Runtime error 8). Replies with the slot's new 48-byte STATUS, as
+     * fw 10.12.12 does (M4 device run; bosectl expected an echo of the write). Wind lands in STATUS `[46]`; `[45]` is left as it was (M4 device run). A `None`
+     * name clears the configured bit, as fw 10.12.12 does.
+     */
     private fun writeMode(p: ByteArray): BmapFrame {
         val address = QcUltra2.modeConfig
         if (p.size != 40) return error(address, LENGTH)
@@ -234,15 +238,15 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
         status[1] = p[1]
         status[2] = p[2]
         status[3] = 1
-        status[4] = 1
+        status[4] = if (String(p, 3, 4, Charsets.UTF_8) == "None" && p[7].toInt() == 0) 0 else 1
         p.copyInto(status, destinationOffset = 6, startIndex = 3, endIndex = 35)
         status[42] = p[35]
         status[43] = p[36]
         status[44] = p[37]
-        status[45] = p[38]
+        status[46] = p[38]
         status[47] = p[39]
         modes[index] = status
-        return status(address, p)
+        return status(address, status)
     }
 
     /**

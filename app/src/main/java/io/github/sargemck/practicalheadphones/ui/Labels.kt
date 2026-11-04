@@ -1,6 +1,7 @@
 package io.github.sargemck.practicalheadphones.ui
 
 import io.github.sargemck.practicalheadphones.bmap.Builders
+import io.github.sargemck.practicalheadphones.bmap.NameProblem
 import io.github.sargemck.practicalheadphones.bmap.SelfVoiceLevel
 import io.github.sargemck.practicalheadphones.bmap.Spatial
 
@@ -39,4 +40,13 @@ fun cncFromStrength(strength: Int): Int = 10 - strength
 fun noiseDescription(strength: Int): String = when (strength) {
     0 -> "Hear surroundings, 0 of 10"
     else -> "Block noise, $strength of 10"
+}
+
+/** What the mode editor says about a name it can't save. Blank gets no message: Save stays off. */
+fun modeNameError(problem: NameProblem?): String? = when (problem) {
+    null, NameProblem.Blank -> null
+    NameProblem.TooLong -> "That name is too long."
+    NameProblem.Reserved -> "The headphones use \"None\" for an empty slot. Pick another name."
+    NameProblem.Preset -> "A Bose preset already has this name."
+    NameProblem.Duplicate -> "You already have a mode with this name."
 }

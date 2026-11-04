@@ -78,6 +78,16 @@ class Headphones(private val connection: BmapConnection) {
         writeMode(Profiles.delete(allModes().modes, name))
     }
 
+    /** Like [updateProfile], for the mode in slot [index]. Checked against a fresh drain. */
+    suspend fun updateMode(index: Int, rename: String? = null, settings: ProfileSettings? = null) {
+        writeMode(Profiles.update(allModes().modes, index, rename, settings))
+    }
+
+    /** Like [deleteProfile], for the mode in slot [index]. Checked against a fresh drain. */
+    suspend fun deleteMode(index: Int) {
+        writeMode(Profiles.delete(allModes().modes, index))
+    }
+
     private suspend fun writeMode(write: ModeConfigWrite) {
         setget(QcUltra2.modeConfig, Builders.modeConfig(write))
     }
