@@ -523,3 +523,34 @@ Common to every entry below unless stated:
 
 - `[46]` follows the written wind value and is set for exactly the modes with Wind Block. `[45]` is 1 on every custom slot and 0 on presets, meaning unknown.
 - The parser now reads wind from `[46]`. The editor showed the wrong Wind Block for Relax and Commute before the fix.
+
+## M6 device session, 2026-11-04
+
+- Firmware: 10.12.12+ga927c9a. Phone: Pixel 10 Pro, Android 17 (SDK 37). Headphones on the desk.
+- The M6 debug build. The association was made through the app's card, and Android's confirmation was tapped by adb.
+
+### 2026-11-04 M6: companion device association and presence
+
+- The dialog title was "Allow the app Practical Headphones to access <headphones>?". Its body is Android's generic text ("sync info, like the name of someone calling…"), with Allow / Don't allow.
+- `cmd companiondevice list 0` then showed one association for our package: id 3, profile null, `notifyOnDeviceNearby=true`.
+- `startObservingDevicePresence(ObservingDevicePresenceRequest)` with the association id worked without error.
+- Presence events seen (`DevicePresenceEvent.event`):
+  - `0` (BLE appeared): right after associating, and from `simulate-device-appeared`
+  - `2` (BT connected): on a spike connect, and when the headphones reconnected after a Bluetooth toggle
+  - `3` (BT disconnected): when Bluetooth went off
+  - `1` (BLE disappeared)
+- Event 2 comes 1.9–2.6 s before Android reports A2DP/HFP connected. The service waits for that report before connecting, per the connect rule.
+- `simulate-device-appeared` only produces event 0, so it doesn't test the start path. The real Bluetooth toggle does.
+- With Bluetooth off, `bondedDevices` is empty, so the paired headphones can't be looked up. Whether auto-connect is set up is therefore read from the association list, not from the paired device.
+
+### 2026-11-04 M6: hands-off lifecycle run
+
+1. **Cold start.** Process ended (APK reinstall, no force-stop), Bluetooth off then on, app not opened:
+   - event 2
+   - service started (REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND, no exception)
+   - A2DP/HFP connected 2.6 s later
+   - SPP connect in 648 ms, loaded in 1156 ms
+
+   About 4 s from event to loaded.
+2. **Stop.** Bluetooth off with no screen visible: link BluetoothOff, event 3, then "SERVICE stopping" 5.07 s later. The service record and the notification were gone.
+3. **Second start.** Bluetooth on: event 2, connected and loaded in 1108 ms, notification back.

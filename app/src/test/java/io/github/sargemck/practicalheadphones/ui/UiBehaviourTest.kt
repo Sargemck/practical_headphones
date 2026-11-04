@@ -68,6 +68,7 @@ class UiBehaviourTest {
         openAppSettings = { calls += "app settings" },
         requestNotifications = { calls += "request notifications" },
         addTile = { calls += "add tile" },
+        setUpAutoConnect = { calls += "auto-connect" },
     )
 
     private fun show(
@@ -285,6 +286,23 @@ class UiBehaviourTest {
         openSheet()
         compose.onNodeWithTag("add-tile").performClick()
         assertEquals(listOf("add tile"), calls)
+    }
+
+    @Test
+    fun `auto-connect is offered once, under the hero, and can be set up or dismissed`() {
+        show(phone = PhoneFeatures(offerAutoConnect = true))
+        compose.onNodeWithTag("auto-connect-set-up").performClick()
+        compose.onNodeWithTag("auto-connect-dismiss").performClick()
+        compose.onNodeWithTag("auto-connect-banner").assertDoesNotExist()
+        assertEquals(listOf("auto-connect"), calls)
+    }
+
+    @Test
+    fun `the notifications banner goes first, auto-connect waits`() {
+        show(permissions = Permissions(notifications = Permission.Denied), phone = PhoneFeatures(offerAutoConnect = true))
+        compose.onNodeWithTag("auto-connect-banner").assertDoesNotExist()
+        compose.onNodeWithTag("notifications-dismiss").performClick()
+        compose.onNodeWithTag("auto-connect-banner").assertExists()
     }
 
     // Permissions

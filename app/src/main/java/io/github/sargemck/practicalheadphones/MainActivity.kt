@@ -14,12 +14,15 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.sargemck.practicalheadphones.link.AutoConnect
+import io.github.sargemck.practicalheadphones.link.BmapLog
 import io.github.sargemck.practicalheadphones.link.BoseAppDetector
 import io.github.sargemck.practicalheadphones.service.HeadphoneService
 import io.github.sargemck.practicalheadphones.state.HeadphoneController
@@ -40,6 +43,15 @@ class MainActivity : ComponentActivity() {
         refreshPermissions()
         if (granted[Manifest.permission.BLUETOOTH_CONNECT] == true) HeadphoneService.start(this)
     }
+
+    /** Shows Android's companion device confirmation. */
+    private val associate = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) {
+        // API 31-32 have no creation callback: observing here covers them; it's idempotent on later versions.
+        autoConnect.observe()
+        refreshPhone()
+    }
+
+    private val autoConnect by lazy { AutoConnect(this, BmapLog::d) }
 
     private val asked by lazy { getSharedPreferences("permissions-asked", MODE_PRIVATE) }
     private val permissionState = MutableStateFlow(Permissions())
@@ -78,7 +90,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refreshPhone() {
-        phoneState.value = PhoneFeatures(canAddTile = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !ModeTileService.isAdded(this))
+        phoneState.value = PhoneFeatures(
+            canAddTile = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !ModeTileService.isAdded(this),
+            offerAutoConnect = granted(Manifest.permission.BLUETOOTH_CONNECT) && autoConnect.status() == AutoConnect.Status.Off,
+        )
     }
 
     /** Asks the system to add the tile (Android 13+). The system shows its own confirmation. */
@@ -127,6 +142,12 @@ class MainActivity : ComponentActivity() {
             },
             openAppSettings = { open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))) },
             addTile = ::addTile,
+            setUpAutoConnect = {
+                autoConnect.request(
+                    launch = { sender -> associate.launch(IntentSenderRequest.Builder(sender).build()) },
+                    done = { refreshPhone() },
+                )
+            },
         )
         val demoPermissions = DebugEntry.demoPermissions(this)
         setContent {

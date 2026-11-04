@@ -30,6 +30,7 @@ data class Actions(
     val requestNotifications: () -> Unit = {},
     val openAppSettings: () -> Unit = {},
     val addTile: () -> Unit = {},
+    val setUpAutoConnect: () -> Unit = {},
 ) {
     companion object {
         /** Headphone actions from [controller]; the Android ones come from the activity. */

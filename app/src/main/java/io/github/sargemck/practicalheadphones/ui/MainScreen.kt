@@ -124,6 +124,8 @@ private fun MainContent(
     edit: (Int?) -> Unit,
 ) {
     var notificationsDismissed by rememberSaveable { mutableStateOf(false) }
+    var autoConnectDismissed by rememberSaveable { mutableStateOf(false) }
+    val phone = LocalPhoneFeatures.current
     val direction = LocalLayoutDirection.current
     LazyColumn(
         modifier = Modifier.fillMaxSize().testTag("main-list"),
@@ -136,8 +138,12 @@ private fun MainContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item { HeroCard(state, actions, permissions.bluetooth) }
-        if (permissions.bluetooth == Permission.Granted && permissions.notifications != Permission.Granted && !notificationsDismissed) {
+        // At most one card here: notifications first, then auto-connect.
+        val showNotifications = permissions.bluetooth == Permission.Granted && permissions.notifications != Permission.Granted && !notificationsDismissed
+        if (showNotifications) {
             item { NotificationsBanner(permissions.notifications, actions) { notificationsDismissed = true } }
+        } else if (permissions.bluetooth == Permission.Granted && phone.offerAutoConnect && !autoConnectDismissed) {
+            item { AutoConnectBanner(actions) { autoConnectDismissed = true } }
         }
         if (state.boseAppInstalled) item { BoseBanner(actions) }
         val live = state.link == LinkState.Connected

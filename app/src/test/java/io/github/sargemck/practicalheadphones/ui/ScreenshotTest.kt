@@ -158,6 +158,13 @@ class ScreenshotTest(private val variant: Variant) {
     }
 
     @Test
+    fun autoConnectBanner() {
+        compose.setContent { UiFrame(variant) { HeadphonesApp(Samples.connected, actions, "0.0.1", phone = PhoneFeatures(offerAutoConnect = true)) } }
+        settle()
+        compose.onNodeWithTag("auto-connect-banner").captureRoboImage(path("auto-connect-banner"))
+    }
+
+    @Test
     fun renameDialog() = dialog(DeviceDialog.Rename, "rename")
 
     @Test

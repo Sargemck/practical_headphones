@@ -30,8 +30,12 @@ enum class Permission {
 /** Runtime permissions the screen needs to know about. Defaults to everything granted (tests, demo). */
 data class Permissions(val bluetooth: Permission = Permission.Granted, val notifications: Permission = Permission.Granted)
 
-/** Things the screen offers depending on the phone, not the headphones. [canAddTile]: Android 13+ and the tile isn't added yet. */
-data class PhoneFeatures(val canAddTile: Boolean = false)
+/**
+ * Things the screen offers depending on the phone, not the headphones. [canAddTile]: Android 13+
+ * and the tile isn't added yet. [offerAutoConnect]: companion devices supported, headphones
+ * paired, no association yet.
+ */
+data class PhoneFeatures(val canAddTile: Boolean = false, val offerAutoConnect: Boolean = false)
 
 /** Lets the All modes sheet see [PhoneFeatures] without threading it through every card. */
 val LocalPhoneFeatures = staticCompositionLocalOf { PhoneFeatures() }
@@ -49,6 +53,23 @@ fun permissionStatus(bluetooth: Permission): LinkStatus? = when (bluetooth) {
         "Turn on Nearby devices in this app's permissions, then come back.",
         LinkStatus.Action.OpenAppSettings,
     )
+}
+
+/** Offered until auto-connect is set up or dismissed (PLAN M6). */
+@Composable
+fun AutoConnectBanner(actions: Actions, dismiss: () -> Unit) {
+    Card(Modifier.fillMaxWidth().testTag("auto-connect-banner")) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Connect automatically", style = MaterialTheme.typography.titleMedium)
+            Description("Lets this app start when your headphones connect, so the tile and notification work without opening it first.")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = dismiss, modifier = Modifier.testTag("auto-connect-dismiss")) { Text("Not now") }
+                FilledTonalButton(onClick = actions.setUpAutoConnect, modifier = Modifier.testTag("auto-connect-set-up")) {
+                    Text("Set up")
+                }
+            }
+        }
+    }
 }
 
 /** Notifications are optional: a banner that says what's missing, with a way to fix it or dismiss it. */

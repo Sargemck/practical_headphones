@@ -14,6 +14,7 @@ import io.github.sargemck.practicalheadphones.AppGraph
 import io.github.sargemck.practicalheadphones.BuildConfig
 import io.github.sargemck.practicalheadphones.MainActivity
 import io.github.sargemck.practicalheadphones.R
+import io.github.sargemck.practicalheadphones.link.AutoConnect
 import io.github.sargemck.practicalheadphones.link.BmapLog
 import io.github.sargemck.practicalheadphones.link.BoseAppDetector
 import io.github.sargemck.practicalheadphones.link.HeadphonesLocator
@@ -26,6 +27,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -33,9 +37,10 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Owns the one connection to the headphones. Started by [MainActivity]; stays up while the
- * headphones are away ("Not connected") so it hears the next connected event. M6 replaces this
- * with presence-based start and stop before release (PLAN M6).
+ * Owns the one connection to the headphones. Started by [MainActivity], or by [PresenceService]
+ * when the associated headphones connect. With auto-connect set up it stops itself once the
+ * headphones are away and no screen is visible ([ServiceLifetime]); without it, it stays up while
+ * they're away so it hears the next connected event.
  */
 class HeadphoneService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -70,6 +75,20 @@ class HeadphoneService : Service() {
             repository.state.map(NotificationModel::from).distinctUntilChanged().collect { manager.notify(NOTIFICATION_ID, build(it)) }
         }
         if (BuildConfig.DEBUG) scope.launch { repository.state.collect { BmapLog.d("STATE ${it.summary()}") } }
+
+        val autoConnect = AutoConnect(this, BmapLog::d).also { it.observe() }
+        scope.launch {
+            combine(repository.state.map { it.link }.distinctUntilChanged(), uiVisible) { link, visible -> link to visible }
+                .collectLatest { (link, visible) ->
+                    // Checked each time: the association can be made while the service runs.
+                    val set = autoConnect.status() == AutoConnect.Status.On
+                    if (!ServiceLifetime.shouldStop(link, visible, set)) return@collectLatest
+                    delay(ServiceLifetime.STOP_AFTER_MS)
+                    BmapLog.d("SERVICE stopping: headphones away ($link), app not visible")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
