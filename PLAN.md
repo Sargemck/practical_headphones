@@ -239,6 +239,17 @@ The spike's allowlist adds only [4.1], [4.2] and [4.12], and only for the PC's M
 
 Success means a reliable "use only this device" action and a reliable switch. Then H1 tests it by ear with two sources and it gets planned into a milestone. If nothing works without auth, it goes back to "Never" with the evidence in FINDINGS. The PC's MAC is redacted in everything committed.
 
+Also in S1's hands-off run (M3 review D5, no headphones needed): demo mode with `forceError` on one section, `cmd uimode night yes`, screenshot the failed section on the device. Blank or unreadable means a real bug: fix it in M4 and give the golden its own test again. If it renders fine, record in FINDINGS that it was a Robolectric quirk.
+
+**Result (2026-11-03, FINDINGS S1):**
+- **Routing ([4.12]):** not supported on fw 10.12.12 (FuncNotSupp in every state). It goes to "Never".
+- **[4.2] Disconnect:** with the bare MAC it disconnects another source, without auth, 3/3.
+- **[4.1] Connect:** with `[0x00] + MAC` it reconnects that source, without auth, 3/3.
+- **Notification steal:** 3 phone notifications while the PC streamed didn't move [5.1], but Baris heard the PC audio cut out and come back (2026-11-04). The steal is real and [5.1] doesn't show it. Phone media takes over within 300 ms and hands back 3.7 s after it stops.
+- **D5:** the failed section renders fine in dark mode. Robolectric quirk.
+
+Recommendation: a Sources milestone after M4 (outline below), built on [4.2] and [4.1]. H1 adds the by-ear checks.
+
 ### H1: hands-on session after M3 and S1 (Baris, ~45 min)
 
 Claude Code prepares a numbered checklist before asking. Claude Code watches logcat throughout and writes results into FINDINGS.
@@ -249,17 +260,25 @@ Claude Code prepares a numbered checklist before asking. Claude Code watches log
   - noise cancelling switch (31.10 anc): what does it do by ear? Update the copy.
   - EQ presets
   - perceived lag on the slider vs Quiet Rebellion
+  - the noise slider writes while dragging (kept, M3 review). Should the EQ sliders do the same instead of writing on release?
 - **Hands on the headphones:**
   - press the shortcut button, press-and-hold, swipe volume, change mode with the button
   - take them off and put them back on
   - turn them off and on: does turning them on need the power button, or do they wake on movement? Update the power-off copy.
   - Does the app follow along, and do unsolicited frames show up in the log? This decides whether polling stays.
 - **Power off and pairing mode** from the app.
-- **UX opinion:** walk through the whole app; anything confusing, ugly, missing. Becomes a short fix list folded into M4.
+- **UX opinion:** walk through the whole app; anything confusing, ugly, missing. Becomes a short fix list folded into M4. Start from the reviewer's M3 notes:
+  - "Bose preset" as a small tag instead of the repeated "Bose preset, can't be edited" line
+  - top app bar with a scroll behaviour so it changes shade over content
+- **Two sources (S1 follow-up):** game or video on the PC, headphones worn.
+  - A phone notification: audible? Does the PC audio cut out, and for how long?
+  - Phone media: confirm it takes over, and that the PC comes back about 4 s after it stops.
+  - Spike `disconnect pc`, then a phone notification and phone media: PC gone, phone audio fine. Then `connect-dev pc`: PC audio back within ~5 s, nothing to click in Windows.
 
 ## M4: Custom mode editor (+ H1 fixes)
 
 - Fix list from H1.
+- Permission denied (M3 review Q1): a `PermissionMissing` status card, "Bluetooth permission needed", with a button that requests `BLUETOOTH_CONNECT`, and opens the app details settings if the system won't show the prompt again. Same for `POST_NOTIFICATIONS`, but as a non-blocking banner.
 - Create a mode in a free slot (4–10): name, strength, spatial, wind, ANC on/off.
 - Edit, rename, delete custom modes. Presets 0–3 read-only.
 - Full slots: clear message, no silent failure.
@@ -267,6 +286,24 @@ Claude Code prepares a numbered checklist before asking. Claude Code watches log
 
 Hands-off device run: create, edit, switch to, delete a test mode; verify via read-back; leave Baris's existing modes untouched (snapshot before, compare after).
 - Favourites byte order: create a test mode in slot ≥ 8, favourite it, read back 31.8 to confirm the 16-bit mask byte order, restore favourites, delete the mode.
+
+## M4b: Sources (proposed by S1)
+
+- A "Devices" card:
+  - lists paired devices from [4.4] with names from [4.5]
+  - each one shows connected or not from the [4.5] flag byte, with this phone marked
+  - names are shown on screen only and never logged in release builds
+- **Disconnect** on another connected device: [4.2] with the bare MAC. Copy: "Stops sound from this device until you reconnect it."
+- **Connect** on a paired device that isn't connected: [4.1] with `[0x00] + MAC`.
+  - It completes on PROCESSING, not on RESULT (none comes). The transport must not retry it.
+  - Re-read [4.5] after 2, 4 and 6 s. "Couldn't connect" if it's still not connected after 6 s.
+  - Not a polling connect: one user tap, one [4.1].
+- No action on this phone's own entry: disconnecting it would drop our link.
+- Only connected or recently connected sources get actions. [4.3] / [4.7] stay refused in `BmapConnection`.
+- The feature map gains [4.1] START, [4.2] START, [4.4] GET and [4.5] GET. `BmapConnection` accepts [4.1] / [4.2] only with a 6-byte MAC (4.2) or `[0x00] + MAC` (4.1) taken from the current [4.4] list.
+- Phone notifications do audibly take over from the PC (S1, by ear). Disconnecting the PC doesn't help with that. The fix is to drop the phone instead ([4.2] with the phone's MAC), which also drops our own link. Getting the phone back needs a user tap: an RFCOMM connect brings the ACL back up (M0). H1 tests this with the spike, by ear, before M4b decides whether to offer it as "Use only <PC>".
+
+Hands-off device run: disconnect and reconnect the PC 3 times from the UI with the PC streaming, confirm by [4.5] read-back. Desk setup needed: the PC connected and playing.
 
 ## M5: Quick Settings tile
 
@@ -322,4 +359,4 @@ Hands-off device run:
 
 - **v2:** Pixel Watch tile (`:wear`), more Bose models via upstream configs, "send device report" button, plain-English error messages.
 - **v3:** context automations (mode by activity / Wi-Fi / location).
-- **Never:** button remapping (needs cloud auth), firmware updates, Quiet Rebellion's retry hack on [4.12] routing. Source control is the S1 spike instead.
+- **Never:** button remapping (needs cloud auth), firmware updates, [4.12] routing (FuncNotSupp on fw 10.12.12, S1), Quiet Rebellion's retry hack on it. Source control is M4b instead.

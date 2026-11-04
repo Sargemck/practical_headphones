@@ -20,6 +20,8 @@ import io.github.sargemck.practicalheadphones.bmap.BmapOp
 import io.github.sargemck.practicalheadphones.bmap.FrameEvent
 import io.github.sargemck.practicalheadphones.bmap.FrameParser
 import io.github.sargemck.practicalheadphones.bmap.Hex
+import io.github.sargemck.practicalheadphones.bmap.MacAddress
+import io.github.sargemck.practicalheadphones.bmap.Parsers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -102,6 +104,16 @@ object SpikeSession {
             "dump" -> dump()
             "writes" -> writes()
             "clock" -> SpikeLog.clock()
+            // S1
+            "allow" -> allow(extras.getString("route").orEmpty(), extras.getString("link").orEmpty())
+            "sources" -> sources()
+            "watch-source" -> watchSource(extras.getInt("ms", 250).toLong(), extras.getInt("seconds", 20))
+            "route" -> deviceStart(12, byteArrayOf(0x82.toByte()) + mac(extras).toBytes())
+            "disconnect" -> deviceStart(2, flag(extras) + mac(extras).toBytes())
+            "connect-dev" -> deviceStart(1, flag(extras) + mac(extras).toBytes())
+            "play" -> SpikeAudio.play(extras.getInt("seconds", 20))
+            "stop" -> SpikeAudio.stop()
+            "notify" -> SpikeAudio.notify(context)
             else -> log("CMD unknown: $cmd")
         }
     }
@@ -465,6 +477,85 @@ object SpikeSession {
         val reply = request(frame)
         log("STEP $label: ${reply?.let { "${it.first} in ${ms(it.second)} ms" } ?: "no reply"}")
         watch("after $label", WATCH_MS)
+    }
+
+    // ── S1: sources ─────────────────────────────────────────────────────────
+
+    @Volatile private var sourceWatch: Job? = null
+
+    private fun parseMac(text: String): MacAddress = MacAddress(text.trim().split(":").map { it.toInt(16) })
+
+    /** `--ez flag true` puts one 0x00 byte before the MAC. */
+    private fun flag(extras: Bundle): ByteArray = if (extras.getBoolean("flag", false)) byteArrayOf(0) else ByteArray(0)
+
+    private fun mac(extras: Bundle): MacAddress = parseMac(extras.getString("mac") ?: error("--es mac XX:XX:XX:XX:XX:XX"))
+
+    /** Logs a MAC by its last two bytes only. */
+    private fun short(mac: MacAddress?): String = mac?.octets?.takeLast(2)?.joinToString(":", prefix = "..:") { "%02X".format(it) } ?: "none"
+
+    private suspend fun paired(): List<MacAddress>? =
+        readStatus(4, 4)?.let { runCatching { Parsers.pairedDevices(it).devices }.getOrNull() }
+
+    /** Sets the session allowlist after checking every MAC is in [4.4]. */
+    private suspend fun allow(route: String, link: String) {
+        val routeMacs = route.split(",").filter { it.isNotBlank() }.map(::parseMac).toSet()
+        val linkMacs = link.split(",").filter { it.isNotBlank() }.map(::parseMac).toSet()
+        val known = paired() ?: return log("ALLOW refused: can't read 4.4")
+        val unknown = (routeMacs + linkMacs).filter { it !in known }
+        if (unknown.isNotEmpty()) return log("ALLOW refused: not in 4.4: ${unknown.joinToString { short(it) }}")
+        SpikeGuard.routeMacs = routeMacs
+        SpikeGuard.linkMacs = linkMacs
+        log("ALLOW route=${routeMacs.joinToString { short(it) }} link=${linkMacs.joinToString { short(it) }}")
+    }
+
+    /** [4.4], [4.5] for each MAC, then [5.1]. Names are logged locally only; never commit them. */
+    private suspend fun sources() {
+        val macs = paired() ?: return log("SOURCES can't read 4.4")
+        for (m in macs) {
+            val info = request(BmapFrame(4, 5, BmapOp.GET, m.toBytes()))?.first
+            val text = info?.takeIf { it.op == BmapOp.STATUS }?.payload?.let { p ->
+                runCatching { Parsers.deviceInfo(p) }.getOrNull()?.let { "flags=${it.flags.joinToString(" ") { f -> "%02x".format(f) }} name=${it.name}" }
+            } ?: info?.toString() ?: "no reply"
+            log("SOURCES ${short(m)} $text")
+        }
+        logSource("SOURCES")
+    }
+
+    private suspend fun logSource(label: String): String? {
+        val p = readStatus(5, 1) ?: run {
+            log("$label 5.1 no reply")
+            return null
+        }
+        val text = runCatching { Parsers.source(p) }.getOrNull()?.let { "${it.type} ${short(it.mac)}" } ?: Hex.format(p)
+        log("$label 5.1 $text (${Hex.format(p.copyOfRange(0, minOf(3, p.size)))})")
+        return text
+    }
+
+    /** Polls [5.1] in the background and logs each change, so other commands can run meanwhile. */
+    private fun watchSource(everyMs: Long, seconds: Int) {
+        sourceWatch?.cancel()
+        sourceWatch = scope.launch {
+            log("WATCHSRC begin every $everyMs ms for $seconds s")
+            var last: String? = null
+            val end = SpikeLog.nowMs() + seconds * 1000
+            while (isActive && SpikeLog.nowMs() < end) {
+                val p = readStatus(5, 1)
+                val text = p?.let { runCatching { Parsers.source(it) }.getOrNull()?.let { s -> "${s.type} ${short(s.mac)}" } ?: Hex.format(it) } ?: "no reply"
+                if (text != last) log("WATCHSRC $text")
+                last = text
+                delay(everyMs)
+            }
+            log("WATCHSRC end")
+        }
+    }
+
+    /** One guarded START on block 4, then where the audio is and what [4.5] says about the target. */
+    private suspend fun deviceStart(func: Int, payload: ByteArray) {
+        val frame = BmapFrame(4, func, BmapOp.START, payload)
+        val reply = request(frame)
+        // Full hex, MACs included: local logs only. FINDINGS gets them redacted.
+        log("DEV 4.$func ${reply?.let { "${it.first.op} ${Hex.format(it.first.payload)} in ${ms(it.second)} ms" } ?: "no reply"}")
+        logSource("DEV after 4.$func")
     }
 
     private suspend fun readStatus(fblock: Int, func: Int): ByteArray? =

@@ -409,3 +409,71 @@ Common to every entry below unless stated:
 ### 2026-10-30 M3: notes
 
 - Headphones switched off don't answer a spike connect (2x `PAGE_TIMEOUT` after 5 s, 2026-10-29 and 2026-10-30). The spike wake works only when they're asleep. After Baris turned them on, ACL connected and the already-running service connected on that event and had everything loaded 2.4 s later.
+
+## S1 device session, 2026-11-03
+
+- Firmware: 10.12.12+ga927c9a. Phone: Pixel 10 Pro, Android 17 (SDK 37). Second source: Baris's Windows PC, playing game audio.
+- Spike session over the reflection path. Headphones on the desk. Five paired devices: the phone, the PC, and three others (devices C, D, E). MACs are written as `PHONE_MAC` / `PC_MAC`, other MACs and every device name are left out. Raw logs stay in the session scratchpad.
+- Timings are from the spike's log clock (ms).
+
+### 2026-11-03 S1 E1: inventory
+
+- `[4.0]` GET: STATUS ASCII `1.1.0`.
+- `[4.4]` STATUS: `<byte> + 5 × MAC`. The first byte matches a bitmask of which list positions are connected:
+  - `01` with only the phone connected, phone first
+  - `03` with the PC and phone connected, in positions 1 and 2
+  - `11` while a connect attempt to the device in position 5 was running
+  - The list order changes: the most recently connected device comes first. Inferred from 4 readings, not confirmed.
+- `[4.5]` GET(MAC): STATUS `MAC + 3 bytes + name`. First byte:
+  - `00`: not connected
+  - `01`: connected (the PC while streaming), and briefly during a failed connect attempt
+  - `03`: the phone, connected and holding our BMAP link
+  - The other two bytes didn't change in any test: `02 03` for the phone and C, D, E, `01 01` for the PC. Probably device class or capabilities.
+- `[5.1]` GET:
+  - `00 0f 00` with nothing playing since connect
+  - `00 0f 01 + MAC` once a source has played. It names the last active source, not the current one: after `[4.2]` disconnected the PC, `[5.1]` still named the PC until the phone played.
+- `[4.1]` GET: STATUS `00 00 03`. `[4.2]` GET: ERROR 5.
+
+### 2026-11-03 S1 E2/E3: what moves the source
+
+- Watch `[5.1]` every 250 ms while the PC streams.
+- Phone media (440 Hz tone, `USAGE_MEDIA`), 2 runs:
+  - `[5.1]` switched to the phone within one poll (≤ 300 ms after play started)
+  - it switched back to the PC 3.7 s after the phone stopped
+- Phone notification (default sound, `USAGE_NOTIFICATION`, channel importance default), 3 runs:
+  - `[5.1]` stayed on the PC every time
+  - `dumpsys audio` shows each notification player started, with the phone's active output `bt_a2dp` at notification volume 6/7
+- So `[5.1]` doesn't show a notification taking over.
+- By ear (Baris, 2026-11-04, playing on the PC during the runs): the PC audio was interrupted a couple of times and then came back. The notification steal is real, and `[5.1]` can't detect it.
+
+### 2026-11-03 S1 E4: routing
+
+- `[4.12]` START `[0x82] + MAC` returns ERROR 4 (FuncNotSupp) in about 20 ms. Seen to the PC and to the phone, idle, with one source streaming, and with both streaming. GET is the same.
+- Routing isn't supported on fw 10.12.12. bosectl's `route()` and Quiet Rebellion's retry don't apply here.
+
+### 2026-11-03 S1 E5: disconnect and reconnect a source
+
+- `[4.2]` START with the bare MAC (6 bytes), PC connected and streaming, 3 runs:
+  - reply PROCESSING `21 + MAC`, then RESULT `MAC`, in 470–890 ms
+  - the PC's `[4.5]` flag went `01` → `00`
+  - the phone stayed connected, and phone audio played on the headphones afterwards
+  - no auth needed
+- `[4.2]` with `[0x00] + MAC`: ERROR 6. On a device that isn't connected, the bare MAC still answers RESULT.
+- `[4.1]` START `[0x00] + MAC` (7 bytes), PC disconnected, 3 runs:
+  - reply PROCESSING `MAC` within 50 ms, then no RESULT or STATUS within 20 s
+  - the PC's `[4.5]` flag read `01` 3.1–4.5 s after the send, and the game audio came back (`[5.1]` named the PC)
+  - no auth needed
+- `[4.1]` with the bare MAC: ERROR 6.
+- `[4.1]` to a paired device that wasn't in range (device E): the `[4.4]` mask showed it connecting, then it fell back to not connected.
+- Reliable, 3/3 each, with read-back confirmation. Neither touches pairing: the PC stayed in `[4.4]` throughout.
+
+### 2026-11-03 S1 E6: failed section in dark mode (M3 review D5)
+
+- Demo mode with `demoFail 1.11` (forced Runtime error on Self Voice GET), `cmd uimode night yes`.
+- The Calls card shows "Self Voice: couldn't read this" with "Try again", readable on the dark card.
+- The blank M3 golden was a Robolectric rendering quirk, not an app bug.
+
+### 2026-11-03 S1: notes
+
+- The headphones dropped both sources at the 10-minute idle mark (M0 E0) during setup. The spike wake brought back only the phone, and the PC reconnected when Baris started the game.
+- The transport's 3 s timeout fires on `[4.1]` because the connect finishes without a reply. A real feature can't retry it as a failed request: the retry would send a second connect.

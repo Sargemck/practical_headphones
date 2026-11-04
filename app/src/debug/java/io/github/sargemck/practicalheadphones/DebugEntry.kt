@@ -4,7 +4,10 @@ import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
+import io.github.sargemck.practicalheadphones.bmap.Address
 import io.github.sargemck.practicalheadphones.bmap.BmapConnection
+import io.github.sargemck.practicalheadphones.bmap.BmapOp
+import io.github.sargemck.practicalheadphones.bmap.ErrorCodes
 import io.github.sargemck.practicalheadphones.bmap.FakeBmapDevice
 import io.github.sargemck.practicalheadphones.link.BmapLog
 import io.github.sargemck.practicalheadphones.state.Connector
@@ -35,7 +38,14 @@ object DebugEntry {
         if (!activity.intent.getBooleanExtra("demo", false)) return null
         val repository = HeadphoneRepository(
             scope = activity.lifecycleScope,
-            connector = Connector { scope -> BmapConnection(FakeBmapDevice(scope), scope) },
+            connector = Connector { scope ->
+                // `--es demoFail 1.11` makes that address answer GET with a Runtime error (S1 E6).
+                val fail = activity.intent.getStringExtra("demoFail")?.split(".")?.map(String::toInt)
+                val fake = FakeBmapDevice(scope).apply {
+                    if (fail != null) forceError[Address(fail[0], fail[1]) to BmapOp.GET] = ErrorCodes.RUNTIME
+                }
+                BmapConnection(fake, scope)
+            },
             clock = SystemClock::elapsedRealtime,
             log = { BmapLog.d("DEMO $it") },
             live = LiveUpdates(polling = false),
