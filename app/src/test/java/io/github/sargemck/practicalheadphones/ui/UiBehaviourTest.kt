@@ -67,6 +67,7 @@ class UiBehaviourTest {
         requestBluetooth = { calls += "request bluetooth" },
         openAppSettings = { calls += "app settings" },
         requestNotifications = { calls += "request notifications" },
+        addTile = { calls += "add tile" },
     )
 
     private fun show(
@@ -75,10 +76,13 @@ class UiBehaviourTest {
         screen: Screen = Screen.Main,
         permissions: Permissions = Permissions(),
         slot: Int? = null,
+        phone: PhoneFeatures = PhoneFeatures(),
     ) {
         RuntimeEnvironment.setFontScale(variant.fontScale)
         compose.setContent {
-            UiFrame(variant) { HeadphonesApp(state, actions, "0.0.1", initialScreen = screen, permissions = permissions, initialEditorSlot = slot) }
+            UiFrame(variant) {
+                HeadphonesApp(state, actions, "0.0.1", initialScreen = screen, permissions = permissions, initialEditorSlot = slot, phone = phone)
+            }
         }
     }
 
@@ -266,6 +270,21 @@ class UiBehaviourTest {
         compose.onNodeWithTag("mode-name").performTextReplacement("Calm")
         compose.onNodeWithTag("mode-save").assertIsNotEnabled()
         compose.onNodeWithTag("editor-offline").assertExists()
+    }
+
+    @Test
+    fun `the sheet offers the Quick Settings tile only when it can be added`() {
+        show()
+        openSheet()
+        compose.onNodeWithTag("add-tile").assertDoesNotExist()
+    }
+
+    @Test
+    fun `adding the tile asks the system`() {
+        show(phone = PhoneFeatures(canAddTile = true))
+        openSheet()
+        compose.onNodeWithTag("add-tile").performClick()
+        assertEquals(listOf("add tile"), calls)
     }
 
     // Permissions

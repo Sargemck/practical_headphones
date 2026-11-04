@@ -31,6 +31,7 @@ import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,6 +42,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -50,6 +52,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.unit.dp
 import io.github.sargemck.practicalheadphones.R
 import io.github.sargemck.practicalheadphones.bmap.EqBand
@@ -258,11 +261,17 @@ private fun ModeTile(mode: ModeConfig, selected: Boolean, actions: Actions, modi
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 private fun AllModesSheet(modes: ModesSection, actions: Actions, close: () -> Unit, edit: (Int?) -> Unit) {
-    ModalBottomSheet(onDismissRequest = close, modifier = Modifier.testTag("all-modes-sheet")) {
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+    // Fully open: the list is long and New mode sits at the bottom.
+    ModalBottomSheet(
+        onDismissRequest = close,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        modifier = Modifier.testTag("all-modes-sheet"),
+    ) {
+        // Its own window, so it needs its own testTagsAsResourceId for adb to see the tags.
+        Column(Modifier.semantics { testTagsAsResourceId = true }.verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
             Text("All modes", style = MaterialTheme.typography.titleLarge, modifier = Pad)
             Description("Starred modes are the ones the headphones' button cycles through. Bose presets can't be edited.", Pad.padding(top = 4.dp, bottom = 8.dp))
             for (mode in modes.modes) {
@@ -308,6 +317,9 @@ private fun AllModesSheet(modes: ModesSection, actions: Actions, close: () -> Un
                     "All ${QcUltra2.editableSlots.count()} custom modes are in use. Delete one to add another.",
                     Pad.padding(top = 8.dp).testTag("modes-full"),
                 )
+            }
+            if (LocalPhoneFeatures.current.canAddTile) {
+                NavRow(R.drawable.ic_add, "Add to Quick Settings", "Switch to the next starred mode from Quick Settings.", "add-tile", actions.addTile)
             }
         }
     }

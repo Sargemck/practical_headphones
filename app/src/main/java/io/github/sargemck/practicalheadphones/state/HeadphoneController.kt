@@ -14,6 +14,7 @@ interface HeadphoneController {
     fun reconnect()
     fun retryFailed()
     fun selectMode(index: Int)
+    fun nextFavouriteMode()
     fun toggleFavourite(index: Int)
     fun setAudio(change: (AudioSettings) -> AudioSettings)
     fun setEq(bass: Int, mid: Int, treble: Int)

@@ -3,6 +3,8 @@ package io.github.sargemck.practicalheadphones
 import android.os.SystemClock
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.lifecycleScope
 import io.github.sargemck.practicalheadphones.bmap.Address
 import io.github.sargemck.practicalheadphones.bmap.BmapConnection
@@ -33,6 +35,7 @@ object DebugEntry {
     /**
      * Demo mode (`adb shell am start ... --ez demo true`): a repository over [FakeBmapDevice],
      * reported connected. The service isn't started and the headphones aren't touched.
+     * The demo repository is also put in [AppGraph], so the Quick Settings tile works against it.
      * `--es demoLink away` reports the headphones gone once everything has loaded (the last known
      * view); `--es demoLink never` never reports them connected (first run).
      */
@@ -64,6 +67,13 @@ object DebugEntry {
             }
             else -> repository.onSystemLink(on)
         }
+        // So the Quick Settings tile drives the demo device too. Cleared with the activity.
+        AppGraph.controller.value = repository
+        activity.lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_DESTROY) AppGraph.controller.compareAndSet(repository, null)
+            },
+        )
         return repository
     }
 

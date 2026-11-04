@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -28,6 +29,12 @@ enum class Permission {
 
 /** Runtime permissions the screen needs to know about. Defaults to everything granted (tests, demo). */
 data class Permissions(val bluetooth: Permission = Permission.Granted, val notifications: Permission = Permission.Granted)
+
+/** Things the screen offers depending on the phone, not the headphones. [canAddTile]: Android 13+ and the tile isn't added yet. */
+data class PhoneFeatures(val canAddTile: Boolean = false)
+
+/** Lets the All modes sheet see [PhoneFeatures] without threading it through every card. */
+val LocalPhoneFeatures = staticCompositionLocalOf { PhoneFeatures() }
 
 /** What the hero card says when the Nearby devices permission is missing, instead of the link state. */
 fun permissionStatus(bluetooth: Permission): LinkStatus? = when (bluetooth) {

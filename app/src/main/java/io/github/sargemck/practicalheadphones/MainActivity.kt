@@ -1,9 +1,12 @@
 package io.github.sargemck.practicalheadphones
 
 import android.Manifest
+import android.app.StatusBarManager
 import android.content.ActivityNotFoundException
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -21,11 +24,13 @@ import io.github.sargemck.practicalheadphones.link.BoseAppDetector
 import io.github.sargemck.practicalheadphones.service.HeadphoneService
 import io.github.sargemck.practicalheadphones.state.HeadphoneController
 import io.github.sargemck.practicalheadphones.state.HeadphoneState
+import io.github.sargemck.practicalheadphones.tile.ModeTileService
 import io.github.sargemck.practicalheadphones.ui.Actions
 import io.github.sargemck.practicalheadphones.ui.AppTheme
 import io.github.sargemck.practicalheadphones.ui.HeadphonesApp
 import io.github.sargemck.practicalheadphones.ui.Permission
 import io.github.sargemck.practicalheadphones.ui.Permissions
+import io.github.sargemck.practicalheadphones.ui.PhoneFeatures
 import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
@@ -38,6 +43,7 @@ class MainActivity : ComponentActivity() {
 
     private val asked by lazy { getSharedPreferences("permissions-asked", MODE_PRIVATE) }
     private val permissionState = MutableStateFlow(Permissions())
+    private val phoneState = MutableStateFlow(PhoneFeatures())
 
     /** Debug demo mode: the screen runs on a simulated device instead of the service. */
     private var demo: HeadphoneController? = null
@@ -49,6 +55,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        refreshPhone()
         if (demo != null) return
         HeadphoneService.uiVisible.value = true
         // Also picks up a permission granted in settings while the app was in the background.
@@ -68,6 +75,26 @@ class MainActivity : ComponentActivity() {
         granted(permission) -> Permission.Granted
         asked.getBoolean(permission, false) && !shouldShowRequestPermissionRationale(permission) -> Permission.Blocked
         else -> Permission.Denied
+    }
+
+    private fun refreshPhone() {
+        phoneState.value = PhoneFeatures(canAddTile = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !ModeTileService.isAdded(this))
+    }
+
+    /** Asks the system to add the tile (Android 13+). The system shows its own confirmation. */
+    private fun addTile() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        getSystemService(StatusBarManager::class.java).requestAddTileService(
+            ComponentName(this, ModeTileService::class.java),
+            getString(R.string.tile_label),
+            Icon.createWithResource(this, R.drawable.ic_headphones),
+            mainExecutor,
+        ) { result ->
+            if (result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED || result == StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ALREADY_ADDED) {
+                ModeTileService.setAdded(this, true)
+            }
+            refreshPhone()
+        }
     }
 
     private fun refreshPermissions() {
@@ -99,12 +126,14 @@ class MainActivity : ComponentActivity() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) permissions.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
             },
             openAppSettings = { open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))) },
+            addTile = ::addTile,
         )
         val demoPermissions = DebugEntry.demoPermissions(this)
         setContent {
             val controller by source.collectAsStateWithLifecycle()
             val state by remember(controller) { controller?.state ?: MutableStateFlow(HeadphoneState()) }.collectAsStateWithLifecycle()
             val permissions by permissionState.collectAsStateWithLifecycle()
+            val phone by phoneState.collectAsStateWithLifecycle()
             val snackbar = remember { SnackbarHostState() }
             LaunchedEffect(controller) { controller?.messages?.collect { snackbar.showSnackbar(it.text) } }
             AppTheme {
@@ -114,6 +143,7 @@ class MainActivity : ComponentActivity() {
                     BuildConfig.VERSION_NAME,
                     snackbar,
                     permissions = demoPermissions ?: permissions,
+                    phone = phone,
                 )
             }
         }

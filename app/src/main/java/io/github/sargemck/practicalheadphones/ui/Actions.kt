@@ -29,6 +29,7 @@ data class Actions(
     val requestBluetooth: () -> Unit = {},
     val requestNotifications: () -> Unit = {},
     val openAppSettings: () -> Unit = {},
+    val addTile: () -> Unit = {},
 ) {
     companion object {
         /** Headphone actions from [controller]; the Android ones come from the activity. */

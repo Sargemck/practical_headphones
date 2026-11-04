@@ -55,6 +55,7 @@ fun HeadphonesApp(
     initialDialog: DeviceDialog? = null,
     permissions: Permissions = Permissions(),
     initialEditorSlot: Int? = null,
+    phone: PhoneFeatures = PhoneFeatures(),
 ) {
     var screen by rememberSaveable { mutableStateOf(initialScreen) }
     var dialog by rememberSaveable { mutableStateOf(initialDialog) }
@@ -63,50 +64,52 @@ fun HeadphonesApp(
     BackHandler(enabled = screen != Screen.Main) { screen = Screen.Main }
     // Changes the bar's shade while content scrolls under it.
     val scroll = TopAppBarDefaults.pinnedScrollBehavior()
-    Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection).semantics { testTagsAsResourceId = true },
-        topBar = {
+    CompositionLocalProvider(LocalPhoneFeatures provides phone) {
+        Scaffold(
+            modifier = Modifier.nestedScroll(scroll.nestedScrollConnection).semantics { testTagsAsResourceId = true },
+            topBar = {
+                when (screen) {
+                    Screen.Main -> TopAppBar(
+                        title = { Text("Practical Headphones") },
+                        scrollBehavior = scroll,
+                        actions = {
+                            IconButton(onClick = { screen = Screen.About }, modifier = Modifier.testTag("about")) {
+                                Icon(painterResource(R.drawable.ic_info), contentDescription = "About")
+                            }
+                        },
+                    )
+                    Screen.About -> TopAppBar(
+                        title = { Text("About") },
+                        scrollBehavior = scroll,
+                        navigationIcon = { BackIcon { screen = Screen.Main } },
+                    )
+                    Screen.ModeEditor -> TopAppBar(
+                        title = { Text(if (editorSlot == null) "New mode" else "Edit mode") },
+                        scrollBehavior = scroll,
+                        navigationIcon = { BackIcon { screen = Screen.Main } },
+                    )
+                }
+            },
+            snackbarHost = { SnackbarHost(snackbar) },
+        ) { padding ->
             when (screen) {
-                Screen.Main -> TopAppBar(
-                    title = { Text("Practical Headphones") },
-                    scrollBehavior = scroll,
-                    actions = {
-                        IconButton(onClick = { screen = Screen.About }, modifier = Modifier.testTag("about")) {
-                            Icon(painterResource(R.drawable.ic_info), contentDescription = "About")
-                        }
+                Screen.Main -> MainContent(
+                    state,
+                    actions,
+                    padding,
+                    permissions,
+                    openDialog = { dialog = it },
+                    edit = { slot ->
+                        editorSlot = slot
+                        screen = Screen.ModeEditor
                     },
                 )
-                Screen.About -> TopAppBar(
-                    title = { Text("About") },
-                    scrollBehavior = scroll,
-                    navigationIcon = { BackIcon { screen = Screen.Main } },
-                )
-                Screen.ModeEditor -> TopAppBar(
-                    title = { Text(if (editorSlot == null) "New mode" else "Edit mode") },
-                    scrollBehavior = scroll,
-                    navigationIcon = { BackIcon { screen = Screen.Main } },
-                )
+                Screen.About -> AboutContent(state, appVersion, actions, padding)
+                Screen.ModeEditor -> ModeEditorContent(state, editorSlot, actions, padding) { screen = Screen.Main }
             }
-        },
-        snackbarHost = { SnackbarHost(snackbar) },
-    ) { padding ->
-        when (screen) {
-            Screen.Main -> MainContent(
-                state,
-                actions,
-                padding,
-                permissions,
-                openDialog = { dialog = it },
-                edit = { slot ->
-                    editorSlot = slot
-                    screen = Screen.ModeEditor
-                },
-            )
-            Screen.About -> AboutContent(state, appVersion, actions, padding)
-            Screen.ModeEditor -> ModeEditorContent(state, editorSlot, actions, padding) { screen = Screen.Main }
         }
+        DeviceDialogs(dialog, state.name.valueOrNull(), actions) { dialog = null }
     }
-    DeviceDialogs(dialog, state.name.valueOrNull(), actions) { dialog = null }
 }
 
 enum class Screen { Main, About, ModeEditor }

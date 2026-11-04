@@ -422,7 +422,7 @@ class HeadphoneRepository(
         }
     }
 
-    fun nextFavouriteMode() {
+    override fun nextFavouriteMode() {
         val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
         nextFavourite(modes)?.let(::selectMode) ?: message("No favourite modes")
     }
