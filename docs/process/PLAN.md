@@ -2,7 +2,7 @@
 
 Scope is v1 below. v2/v3 are listed at the end so nothing designs them out, but don't build them.
 
-Each milestone: plan mode, reviewer approves plan, build, PR, reviewer approves PR, merge.
+Each milestone: plan mode, reviewer approves the plan, build on `main`, milestone report, reviewer approves the milestone. (Up to M7 each milestone was a branch and a pull request. Since 2026-11-07 work goes straight to `main`.)
 
 ## How testing works (read this first)
 
@@ -14,7 +14,7 @@ Baris's time on the phone is the scarcest resource in this project. Testing is l
 
 Rules:
 - Never ask Baris for a physical action outside H1/H2. If something truly can't proceed without one, stop, explain why, and batch everything needed into one ask.
-- Anything that can't be verified until H1/H2 gets listed in the PR under "Deferred to H1/H2" so nothing gets forgotten.
+- Anything that can't be verified until H1/H2 gets listed in the milestone report under "Deferred to H1/H2" so nothing gets forgotten.
 - Never send power-off or pairing-mode during hands-off runs. Nobody's there to turn the headphones back on.
 
 **Desk setup** (Claude Code asks for it at the start of a hands-off run; Baris sets it up and walks away):
@@ -27,7 +27,7 @@ Every hands-off run starts by checking the headphones are connected. They drop t
 Definition of done for every milestone:
 - `./gradlew test lint assembleDebug` green
 - New logic in `:bmap` has unit tests; new UI has screenshot tests
-- Hands-off device run for that milestone passed, with a log excerpt or screenshots in the PR
+- Hands-off device run for that milestone passed, with a log excerpt or screenshots in the milestone report
 - `docs/FINDINGS.md` updated if anything was learned from the device
 
 ## Before S0 (Baris, ~20 min, can't be done by Claude Code)
@@ -41,7 +41,7 @@ Definition of done for every milestone:
 ## Decisions (Baris)
 
 - **D1 App name + package ID.** Done: Practical Headphones, `io.github.sargemck.practicalheadphones`.
-- **D2 GitHub repo** (private is fine). Created in S0. Tell the reviewer `owner/repo` so PRs can be reviewed directly.
+- **D2 GitHub repo** (private is fine). Created in S0. Tell the reviewer `owner/repo` so plans and work can be read directly.
 
 ---
 

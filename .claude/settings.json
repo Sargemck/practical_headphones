@@ -41,7 +41,13 @@
     ],
     "deny": [
       "Bash(git push --force *)",
-      "Bash(git push -f *)"
+      "Bash(git push -f *)",
+      "Read(./keystore.properties)"
     ]
+  },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
   }
 }

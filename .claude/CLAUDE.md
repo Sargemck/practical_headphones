@@ -6,13 +6,13 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 
 ## Working agreement
 
-- Work from `PLAN.md`, one milestone at a time. Never start the next milestone until Baris says the current PR is approved.
-- At the start of a milestone, enter plan mode, write the plan, and stop. Commit it as `docs/plans/<milestone>.md` on the milestone branch and push; the reviewer reads plans and PRs from GitHub. Code after approval.
-- One branch per milestone: `m<N>-<slug>`. Open a PR into `main`. Never commit to `main` directly.
-- PR description: what changed, how it was tested (unit + on-device), screenshots for UI, open questions, anything that differs from the plan and why.
+- Work from `docs/process/PLAN.md`, one milestone at a time. Never start the next milestone until Baris says the current one is approved.
+- At the start of a milestone, enter plan mode, write the plan, and stop. Commit it as `docs/process/plans/<milestone>.md` (lower case) on `main` and push; the reviewer reads plans and work from GitHub. Code after approval.
+- Work on `main`: commit and push there directly. No milestone branches or PRs.
+- Milestone report when done: what changed, how it was tested (unit + on-device), screenshots for UI, open questions, anything that differs from the plan and why.
 - Small commits with clear messages.
-- Baris's time with the phone is the scarcest resource. Follow "How testing works" in PLAN.md: JVM tests and hands-off device runs do the work; Baris is only needed for the two hands-on sessions (H1, H2). Outside those, the most you ask for is the desk setup. If you're truly blocked on a physical action, stop, explain why it can't be tested any other way, and batch every ask into one.
-- Anything learned from the real device goes into `docs/FINDINGS.md` with date, firmware version, and what was observed. Facts beat assumptions: if FINDINGS contradicts this file, FINDINGS wins. Flag the conflict in the PR.
+- Baris's time with the phone is the scarcest resource. Follow "How testing works" in `docs/process/PLAN.md`: JVM tests and hands-off device runs do the work; Baris is only needed for the two hands-on sessions (H1, H2). Outside those, the most you ask for is the desk setup. If you're truly blocked on a physical action, stop, explain why it can't be tested any other way, and batch every ask into one.
+- Anything learned from the real device goes into `docs/FINDINGS.md` with date, firmware version, and what was observed. Facts beat assumptions: if FINDINGS contradicts this file, FINDINGS wins. Flag the conflict in the milestone report.
 - If something in the plan turns out wrong or much harder than expected, stop and say so. Don't quietly work around it.
 
 ## Hard rules
@@ -21,7 +21,7 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 - Never send [4.3] RemoveDevice, [4.7] ClearDeviceList, [4.10] PrepareP2P or [4.11] P2PMode, with any op. They unpair devices or are unknown. `BmapConnection` refuses them even if a config entry is added by mistake.
 - No `INTERNET` permission. No analytics, no crash reporting SDKs.
 - No JNI / native sockets.
-- Never force-push. Never push to `main` after S0; everything goes through a PR.
+- Never force-push.
 - Don't install software on Baris's PC without saying what and why and getting a yes.
 - No fixed `delay()` to wait for a reply. Replies are awaited by matching frames (see Transport).
 - `:bmap` module has zero Android imports.
@@ -47,7 +47,7 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 - Device: Baris's Pixel 10 Pro over USB, or wireless debugging. If `adb devices` shows `unauthorized`, ask Baris to accept the prompt on the phone.
 - Commands (also VS Code tasks in `.vscode/tasks.json`):
   - `./gradlew :bmap:test`: fast unit tests
-  - `./gradlew test lint assembleDebug`: full check, must pass before every PR
+  - `./gradlew test lint assembleDebug`: full check, must pass before every push
   - `./gradlew installDebug`, then `adb shell am start -n <applicationId>/.MainActivity`
   - `adb logcat -c && adb logcat -s BMAP:* AndroidRuntime:E`
 - Hands-off device toolkit (proven in S0, see FINDINGS): `adb exec-out screencap -p` then view the PNG yourself, `adb shell input`, `adb shell uiautomator dump`, instrumented tests via `./gradlew connectedDebugAndroidTest`, `adb shell cmd bluetooth_manager disable|enable`, `adb shell am kill <pkg>` for process death. Never `force-stop` our own app to simulate process death: a force-stopped app isn't woken by the system. `adb reboot` is not hands-off on this phone (USB debugging prompt + PIN after boot), so reboot tests happen in H2. Never send power-off or pairing-mode during hands-off runs.

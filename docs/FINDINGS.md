@@ -1,6 +1,6 @@
 # FINDINGS
 
-What we learned from the real phone and headphones. If this file contradicts CLAUDE.md or PLAN.md, this file wins; flag the conflict in the PR.
+What we learned from the real phone and headphones. If this file contradicts CLAUDE.md or PLAN.md, this file wins; flag the conflict in the milestone report.
 
 ## Entry template
 

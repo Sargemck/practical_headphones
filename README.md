@@ -1,14 +1,14 @@
 # Practical Headphones
 
-An Android app for the Bose QuietComfort Ultra Headphones (2nd Gen). It talks to the headphones directly over Bluetooth. You don't need the Bose app or an account.
+Practical Headphones is an Android app for the Bose QuietComfort Ultra Headphones (2nd Gen). It switches modes, sets noise control, the equaliser and call settings, and builds your own modes, all directly over Bluetooth, so you don't need the Bose app or an account. A Quick Settings tile and an ongoing notification put the common controls one tap away, and with auto-connect the app is ready as soon as the headphones connect.
 
 Not affiliated with Bose. Bose and QuietComfort are trademarks of Bose Corporation.
 
 | Main screen | All modes | New mode |
 |---|---|---|
-| ![Main screen](app/src/test/screenshots/main-light.png) | ![All modes](app/src/test/screenshots/all-modes-sheet-light.png) | ![New mode](app/src/test/screenshots/mode-editor-new-light.png) |
+| ![Main screen](fastlane/metadata/android/en-US/images/phoneScreenshots/1.png) | ![All modes](fastlane/metadata/android/en-US/images/phoneScreenshots/3.png) | ![New mode](fastlane/metadata/android/en-US/images/phoneScreenshots/2.png) |
 
-## What it does
+## Features
 
 - **Modes:**
   - switch modes
@@ -20,8 +20,12 @@ Not affiliated with Bose. Bose and QuietComfort are trademarks of Bose Corporati
 - **Headphones:** auto play/pause, rename, pairing mode and power off. Shows battery and multipoint.
 - **Quick Settings tile:** shows the current mode. A tap goes to the next starred mode.
 - **Notification:** battery, current mode, next mode, noise cancelling on/off.
-- **Auto-connect:** with it set up, the app starts when the headphones connect, so the tile and notification work without opening it first.
+- **Auto-connect:** the app starts when the headphones connect.
 - **While the headphones are away:** the last settings read from them stay on screen, dimmed.
+
+## Install
+
+Download the APK from [GitHub Releases](https://github.com/Sargemck/practical_headphones/releases). F-Droid is planned.
 
 ## Requirements
 
@@ -39,8 +43,6 @@ The app has no internet permission. It reads and changes settings on your headph
 - `./gradlew test lint assembleDebug` runs the unit and screenshot tests, lint, and the debug build.
 - `./gradlew assembleRelease` builds an unsigned release.
 - To sign the release, put a `keystore.properties` at the repo root with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`. It's gitignored.
-
-`docs/FINDINGS.md` records what was learned from the real headphones, with dates and firmware versions.
 
 ## Credits
 
