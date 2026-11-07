@@ -92,7 +92,10 @@ class MainActivity : ComponentActivity() {
     private fun refreshPhone() {
         phoneState.value = PhoneFeatures(
             canAddTile = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !ModeTileService.isAdded(this),
-            offerAutoConnect = granted(Manifest.permission.BLUETOOTH_CONNECT) && autoConnect.status() == AutoConnect.Status.Off,
+            // API 36+ only: the older presence API fires on "nearby", not on connect, and is untested (M6 review).
+            offerAutoConnect = Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA &&
+                granted(Manifest.permission.BLUETOOTH_CONNECT) &&
+                autoConnect.status() == AutoConnect.Status.Off,
         )
     }
 

@@ -1,7 +1,16 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.roborazzi)
+}
+
+// Release signing from keystore.properties at the repo root (gitignored): storeFile, storePassword,
+// keyAlias, keyPassword. Without it, release builds are unsigned, which is what F-Droid and the
+// reproducible-build check use.
+val keystoreProperties = rootProject.file("keystore.properties").takeIf { it.exists() }?.let { file ->
+    Properties().apply { file.inputStream().use { load(it) } }
 }
 
 android {
@@ -15,6 +24,31 @@ android {
         versionCode = 1
         versionName = "0.0.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (keystoreProperties != null) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+                // v3 lets the key be rotated later without breaking updates. v1 isn't needed at minSdk 31.
+                enableV3Signing = true
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (keystoreProperties != null) signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    // Reproducible builds (F-Droid): no build-time timestamps or VCS info in the APK.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 
     compileOptions {

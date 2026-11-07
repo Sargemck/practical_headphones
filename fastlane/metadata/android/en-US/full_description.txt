@@ -1,0 +1,28 @@
+Practical Headphones controls the Bose QuietComfort Ultra Headphones (2nd Gen) directly over Bluetooth. You don't need the Bose app or an account.
+
+<b>Modes</b>
+<ul>
+<li>Switch modes, and choose which ones the headphones' button cycles through.</li>
+<li>Create, edit and delete custom modes. A new mode starts from what you're hearing.</li>
+</ul>
+
+<b>Sound</b>
+<ul>
+<li>Noise control: how much outside sound gets through, Wind Block, noise cancelling and spatial audio.</li>
+<li>Equaliser presets, or bass, mid and treble.</li>
+<li>Self Voice and auto answer for calls.</li>
+</ul>
+
+<b>On the phone</b>
+<ul>
+<li>A Quick Settings tile that shows the current mode and switches to the next starred one.</li>
+<li>An ongoing notification with battery, mode and quick actions.</li>
+<li>Optional auto-connect on Android 16 or newer: the app starts when the headphones connect.</li>
+<li>While the headphones are away, the last settings read from them stay on screen.</li>
+</ul>
+
+The app has no internet permission and collects nothing.
+
+Tested on headphone firmware 10.12.12. Only one app can control the headphones at a time, so if the Bose app connects, this app offers to reconnect.
+
+Not affiliated with Bose. Bose and QuietComfort are trademarks of Bose Corporation. Protocol knowledge comes from bosectl (MIT).

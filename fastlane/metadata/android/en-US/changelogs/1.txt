@@ -1,0 +1,1 @@
+First release: modes, custom modes, noise control, equaliser, calls settings, Quick Settings tile, notification and auto-connect.

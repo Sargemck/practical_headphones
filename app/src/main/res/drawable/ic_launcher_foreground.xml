@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Launcher icon glyph: the Material "headphones" icon (Apache License 2.0), centred in the
+     108dp adaptive canvas and kept inside the 66dp safe zone. No Bose marks. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="2.6"
+        android:scaleY="2.6"
+        android:translateX="22.8"
+        android:translateY="26.7">
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M12,1C7.03,1 3,5.03 3,10v7c0,1.66 1.34,3 3,3h3v-8H5v-2c0,-3.87 3.13,-7 7,-7s7,3.13 7,7v2h-4v8h3c1.66,0 3,-1.34 3,-3v-7C21,5.03 16.97,1 12,1z" />
+    </group>
+</vector>
