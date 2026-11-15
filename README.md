@@ -1,5 +1,7 @@
 # Practical Headphones
 
+[![Check](https://github.com/Sargemck/practical_headphones/actions/workflows/check.yml/badge.svg)](https://github.com/Sargemck/practical_headphones/actions/workflows/check.yml)
+
 Practical Headphones is an Android app for the Bose QuietComfort Ultra Headphones (2nd Gen). It switches modes, sets noise control, the equaliser and call settings, and builds your own modes, all directly over Bluetooth, so you don't need the Bose app or an account. A Quick Settings tile and an ongoing notification put the common controls one tap away, and with auto-connect the app is ready as soon as the headphones connect.
 
 Not affiliated with Bose. Bose and QuietComfort are trademarks of Bose Corporation.
@@ -36,6 +38,18 @@ Download the APK from [GitHub Releases](https://github.com/Sargemck/practical_he
 ## Privacy
 
 The app has no internet permission. It reads and changes settings on your headphones over Bluetooth, and keeps the last values it read on the phone. None of it is backed up or copied to a new phone. See [PRIVACY.md](PRIVACY.md).
+
+## How it works
+
+- The headphones take commands over classic Bluetooth (RFCOMM), in a protocol called BMAP. The app speaks it directly, so nothing goes through Bose's servers.
+- The protocol code is a pure Kotlin module, [`bmap`](bmap/), with no Android dependencies. Its tests run against replies captured from real headphones and against a simulated pair.
+- Every screen has screenshot tests in light, dark and the largest font size. They run with the unit tests on every change.
+- The app only reads and writes settings. It has no firmware-update code, and it refuses the commands that unpair devices.
+- What was learned from the real headphones, including where firmware 10.12.12 differs from older notes, is in [docs/FINDINGS.md](docs/FINDINGS.md).
+
+## How it was built
+
+The code was written with [Claude Code](https://claude.com/claude-code), one milestone at a time. Each milestone had a written plan that was reviewed before any code, and a run on the real phone and headphones before it was accepted. The plans are in [docs/process](docs/process/).
 
 ## Building
 
