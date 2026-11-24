@@ -5,18 +5,19 @@ import android.bluetooth.BluetoothA2dp
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHeadset
+import android.bluetooth.BluetoothLeAudio
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import io.github.sargemck.practicalheadphones.state.SystemLink
 
 /**
- * What Android reports about Bluetooth and the headphones. They count as connected when A2DP
- * or HEADSET (HFP) is connected; either can be up without the other. Known gap: LE Audio
- * (fw 10.12.12 beta) would show neither (FINDINGS).
+ * What Android reports about Bluetooth and the headphones. They count as connected when A2DP,
+ * HEADSET (HFP), or LE Audio (Android 13+) is connected; any can be up without the others.
  */
 @SuppressLint("MissingPermission") // BLUETOOTH_CONNECT is checked before the service starts.
 class SystemLinkMonitor(
@@ -26,7 +27,12 @@ class SystemLinkMonitor(
     private val log: (String) -> Unit,
 ) {
     private val adapter = context.getSystemService(BluetoothManager::class.java).adapter
-    private val connected = mutableMapOf(BluetoothProfile.A2DP to false, BluetoothProfile.HEADSET to false)
+    private val connected = mutableMapOf(
+        BluetoothProfile.A2DP to false,
+        BluetoothProfile.HEADSET to false,
+    ).apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) put(BluetoothProfile.LE_AUDIO, false)
+    }
     private val proxies = mutableMapOf<Int, BluetoothProfile>()
     private var last: SystemLink? = null
 
@@ -41,6 +47,14 @@ class SystemLinkMonitor(
                 }
                 BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED -> profileChanged(BluetoothProfile.A2DP, intent)
                 BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED -> profileChanged(BluetoothProfile.HEADSET, intent)
+                BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
+                    if (locator.find(adapter) == null) connected.keys.forEach { connected[it] = false }
+                }
+                else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    intent.action == BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED
+                ) {
+                    profileChanged(BluetoothProfile.LE_AUDIO, intent)
+                }
             }
             publish()
         }
@@ -51,6 +65,10 @@ class SystemLinkMonitor(
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
             addAction(BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED)
+            addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                addAction(BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED)
+            }
         }
         // Sent by the Bluetooth app, not the system uid: must be exported to arrive.
         context.registerSystemReceiver(receiver, filter, exported = true)
@@ -110,5 +128,10 @@ class SystemLinkMonitor(
         }
     }
 
-    private fun name(profile: Int) = if (profile == BluetoothProfile.A2DP) "A2DP" else "HFP"
+    private fun name(profile: Int) = when {
+        profile == BluetoothProfile.A2DP -> "A2DP"
+        profile == BluetoothProfile.HEADSET -> "HFP"
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && profile == BluetoothProfile.LE_AUDIO -> "LE_AUDIO"
+        else -> profile.toString()
+    }
 }
