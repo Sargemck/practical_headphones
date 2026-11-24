@@ -28,4 +28,10 @@ interface HeadphoneController {
     fun deleteMode(index: Int)
     fun powerOff()
     fun pairingMode()
+    fun setDiscreteAnc(optionId: String) {}
+    fun setAmbientLevel(level: Int) {}
+    fun setFocusOnVoice(on: Boolean) {}
+    fun setSpeakToChat(on: Boolean) {}
+    fun setEqPreset(presetId: String) {}
+    fun selectDevice(address: String) {}
 }

@@ -26,6 +26,46 @@ data class ModesSection(val modes: List<ModeConfig>, val current: Int, val favou
     val currentMode: ModeConfig? get() = modes.firstOrNull { it.index == current }
 }
 
+/** Identifies the connected model and whether its protocol support is still unverified on real hardware. */
+data class DeviceBadge(val brand: String, val model: String, val experimental: Boolean)
+
+/** One battery component for earbuds (e.g. L, R, Case). */
+data class BatteryPart(val label: String, val percent: Int)
+
+/** One selectable option in a discrete ANC / Ambient control card (Sony, Soundcore, Samsung, Bose QC35). */
+data class DiscreteAncOption(val id: String, val label: String, val description: String? = null)
+
+/** State for headphones that expose discrete noise-control modes rather than Bose's continuous CNC slider. */
+data class DiscreteAncState(
+    val options: List<DiscreteAncOption>,
+    val selectedId: String,
+    val ambientLevel: Int? = null,
+    val ambientMax: Int = 20,
+    val focusOnVoice: Boolean? = null,
+)
+
+/** One selectable EQ preset for headphones that provide their own preset list (Sony, Soundcore, Samsung). */
+data class EqPresetChoice(val id: String, val label: String, val values: List<Int> = emptyList())
+
+/** One paired supported headphone available to switch to. */
+data class PairedHeadphoneChoice(
+    val address: String,
+    val name: String,
+    val brand: String,
+    val selected: Boolean,
+)
+
+/** Per-model capability flags controlling which Device card and Mode actions are shown. */
+data class Capabilities(
+    val canRename: Boolean = true,
+    val canPair: Boolean = true,
+    val canPowerOff: Boolean = true,
+    val canEditModes: Boolean = true,
+    val editableSlots: IntRange = 4..10,
+    val presetSlots: IntRange = 0..3,
+    val presetNames: List<String> = listOf("Quiet", "Aware", "Immersion", "Cinema"),
+)
+
 enum class LinkState {
     BluetoothOff,
     NotPaired,
@@ -56,20 +96,35 @@ data class HeadphoneState(
     val autoAnswer: Section<Boolean> = Section.Loading,
     val multipoint: Section<Multipoint> = Section.Loading,
     val boseAppInstalled: Boolean = false,
+    val deviceBadge: DeviceBadge? = null,
+    val batteryParts: List<BatteryPart> = emptyList(),
+    val discreteAnc: Section<DiscreteAncState> = Section.Unsupported,
+    val speakToChat: Section<Boolean> = Section.Unsupported,
+    val eqPresets: List<EqPresetChoice>? = null,
+    val eqBandLabels: List<String>? = null,
+    val availableDevices: List<PairedHeadphoneChoice> = emptyList(),
+    val capabilities: Capabilities = Capabilities(),
+    val companionAppName: String? = null,
     /**
      * The values last read while connected, kept after the link drops so the UI can show them
      * dimmed. Null until something has loaded in this process. Never shown as live values.
      */
     val lastKnown: HeadphoneState? = null,
 ) {
-    /** Every section reset to [Section.Loading], keeping the link, the Bose app flag and a snapshot in [lastKnown]. */
-    fun cleared(): HeadphoneState =
-        HeadphoneState(link = link, boseAppInstalled = boseAppInstalled, lastKnown = snapshot() ?: lastKnown)
+    /** Every section reset to [Section.Loading], keeping the link, app flags, available devices and a snapshot in [lastKnown]. */
+    fun cleared(): HeadphoneState = HeadphoneState(
+        link = link,
+        boseAppInstalled = boseAppInstalled,
+        companionAppName = companionAppName,
+        availableDevices = availableDevices,
+        lastKnown = snapshot() ?: lastKnown,
+    )
 
     private fun snapshot(): HeadphoneState? =
-        if (sections.any { it is Section.Loaded }) copy(lastKnown = null) else null
+        if (sections.any { it is Section.Loaded }) copy(lastKnown = null, batteryParts = emptyList()) else null
 
-    private val sections get() = listOf(name, firmware, battery, modes, audio, eq, selfVoice, autoPlayPause, autoAnswer, multipoint)
+    private val sections
+        get() = listOf(name, firmware, battery, modes, audio, discreteAnc, eq, selfVoice, speakToChat, autoPlayPause, autoAnswer, multipoint)
 
     val fullyLoaded: Boolean
         get() = sections.none { it is Section.Loading }

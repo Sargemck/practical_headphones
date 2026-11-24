@@ -108,7 +108,7 @@ fun HeadphonesApp(
                 Screen.ModeEditor -> ModeEditorContent(state, editorSlot, actions, padding) { screen = Screen.Main }
             }
         }
-        DeviceDialogs(dialog, state.name.valueOrNull(), actions) { dialog = null }
+        DeviceDialogs(dialog, state.name.valueOrNull(), actions, state.availableDevices) { dialog = null }
     }
 }
 
@@ -137,7 +137,7 @@ private fun MainContent(
         ),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { HeroCard(state, actions, permissions.bluetooth) }
+        item { HeroCard(state, actions, permissions.bluetooth, onSwitchDevice = { openDialog(DeviceDialog.SwitchDevice) }) }
         // At most one card here: notifications first, then auto-connect.
         val showNotifications = permissions.bluetooth == Permission.Granted && permissions.notifications != Permission.Granted && !notificationsDismissed
         if (showNotifications) {
@@ -145,7 +145,7 @@ private fun MainContent(
         } else if (permissions.bluetooth == Permission.Granted && phone.offerAutoConnect && !autoConnectDismissed) {
             item { AutoConnectBanner(actions) { autoConnectDismissed = true } }
         }
-        if (state.boseAppInstalled) item { BoseBanner(actions) }
+        if (state.boseAppInstalled) item { BoseBanner(actions, state.companionAppName) }
         val live = state.link == LinkState.Connected
         // While disconnected, the last known settings show dimmed and disabled.
         val shown = if (live) state else state.lastKnown
@@ -169,6 +169,9 @@ private fun MainContent(
         }
         section { ModesCard(shown, actions, edit) }
         section { NoiseCard(shown, actions) }
+        if (shown.discreteAnc != io.github.sargemck.practicalheadphones.state.Section.Unsupported) {
+            section { DiscreteNoiseCard(shown, actions) }
+        }
         section { SoundCard(shown, actions) }
         section { CallsCard(shown, actions) }
         section {

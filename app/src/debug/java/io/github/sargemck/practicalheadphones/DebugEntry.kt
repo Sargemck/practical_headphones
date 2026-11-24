@@ -9,10 +9,21 @@ import androidx.lifecycle.lifecycleScope
 import io.github.sargemck.practicalheadphones.bmap.Address
 import io.github.sargemck.practicalheadphones.bmap.BmapConnection
 import io.github.sargemck.practicalheadphones.bmap.BmapOp
+import io.github.sargemck.practicalheadphones.bmap.BoseCatalog
 import io.github.sargemck.practicalheadphones.bmap.ErrorCodes
 import io.github.sargemck.practicalheadphones.bmap.FakeBmapDevice
+import io.github.sargemck.practicalheadphones.driver.BoseDriver
+import io.github.sargemck.practicalheadphones.driver.DriverConnector
+import io.github.sargemck.practicalheadphones.driver.SamsungDriver
+import io.github.sargemck.practicalheadphones.driver.SonyDriver
+import io.github.sargemck.practicalheadphones.driver.SoundcoreDriver
 import io.github.sargemck.practicalheadphones.link.BmapLog
-import io.github.sargemck.practicalheadphones.state.Connector
+import io.github.sargemck.practicalheadphones.samsung.FakeSamsungDevice
+import io.github.sargemck.practicalheadphones.samsung.SamsungConnection
+import io.github.sargemck.practicalheadphones.sony.FakeSonyDevice
+import io.github.sargemck.practicalheadphones.sony.SonyConnection
+import io.github.sargemck.practicalheadphones.soundcore.FakeSoundcoreDevice
+import io.github.sargemck.practicalheadphones.soundcore.SoundcoreConnection
 import io.github.sargemck.practicalheadphones.state.HeadphoneController
 import io.github.sargemck.practicalheadphones.state.HeadphoneRepository
 import io.github.sargemck.practicalheadphones.state.LinkState
@@ -33,23 +44,38 @@ object DebugEntry {
     }
 
     /**
-     * Demo mode (`adb shell am start ... --ez demo true`): a repository over [FakeBmapDevice],
-     * reported connected. The service isn't started and the headphones aren't touched.
-     * The demo repository is also put in [AppGraph], so the Quick Settings tile works against it.
-     * `--es demoLink away` reports the headphones gone once everything has loaded (the last known
-     * view); `--es demoLink never` never reports them connected (first run).
+     * Demo mode (`adb shell am start ... --ez demo true`): a repository over an in-memory fake
+     * device, reported connected. Supports `--es demoDevice qc_ultra2|qc_ultra2_earbuds|qc45|qc35|
+     * sony_xm5|soundcore_q45|galaxy_buds2_pro`, `--es demoFail 1.11`, and `--es demoLink away|never`.
      */
     fun demoController(activity: ComponentActivity): HeadphoneController? {
         if (!activity.intent.getBooleanExtra("demo", false)) return null
+        val demoDevice = activity.intent.getStringExtra("demoDevice")?.lowercase() ?: "qc_ultra2"
         val repository = HeadphoneRepository(
             scope = activity.lifecycleScope,
-            connector = Connector { scope ->
-                // `--es demoFail 1.11` makes that address answer GET with a Runtime error (S1 E6).
-                val fail = activity.intent.getStringExtra("demoFail")?.split(".")?.map(String::toInt)
-                val fake = FakeBmapDevice(scope).apply {
-                    if (fail != null) forceError[Address(fail[0], fail[1]) to BmapOp.GET] = ErrorCodes.RUNTIME
+            driverConnector = DriverConnector { scope ->
+                when (demoDevice) {
+                    "sony_xm5" -> {
+                        val fake = FakeSonyDevice(protocolV2 = true, inquiredType = 0x17)
+                        SonyDriver(SonyConnection(fake, scope), scope, "WH-1000XM5") { BmapLog.d("DEMO $it") }
+                    }
+                    "soundcore_q45" -> {
+                        val fake = FakeSoundcoreDevice(soundModeWidth = 6)
+                        SoundcoreDriver(SoundcoreConnection(fake, scope), scope, "Soundcore Space Q45") { BmapLog.d("DEMO $it") }
+                    }
+                    "galaxy_buds2_pro" -> {
+                        val fake = FakeSamsungDevice()
+                        SamsungDriver(SamsungConnection(fake, scope), scope, "Galaxy Buds2 Pro") { BmapLog.d("DEMO $it") }
+                    }
+                    else -> {
+                        val profile = BoseCatalog.byId(demoDevice) ?: BoseCatalog.QC_ULTRA_2
+                        val fail = activity.intent.getStringExtra("demoFail")?.split(".")?.map(String::toInt)
+                        val fake = FakeBmapDevice(scope, profile).apply {
+                            if (fail != null) forceError[Address(fail[0], fail[1]) to BmapOp.GET] = ErrorCodes.RUNTIME
+                        }
+                        BoseDriver(BmapConnection(fake, scope), scope, profile) { BmapLog.d("DEMO $it") }
+                    }
                 }
-                BmapConnection(fake, scope)
             },
             clock = SystemClock::elapsedRealtime,
             log = { BmapLog.d("DEMO $it") },

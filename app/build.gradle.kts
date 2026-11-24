@@ -77,6 +77,9 @@ roborazzi {
 
 dependencies {
     implementation(project(":bmap"))
+    implementation(project(":sony"))
+    implementation(project(":soundcore"))
+    implementation(project(":samsung"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.activity.compose)
@@ -87,6 +90,9 @@ dependencies {
     testImplementation(libs.junit.jupiter)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(testFixtures(project(":bmap")))
+    testImplementation(testFixtures(project(":sony")))
+    testImplementation(testFixtures(project(":soundcore")))
+    testImplementation(testFixtures(project(":samsung")))
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.androidx.compose.ui.test.junit4)
     // Robolectric brings espresso 3.5.1, which calls InputManager.getInstance(), gone in SDK 37.
@@ -100,6 +106,9 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     // Demo mode runs the screen on the simulated headphones. Debug only: release has no fake.
     debugImplementation(testFixtures(project(":bmap")))
+    debugImplementation(testFixtures(project(":sony")))
+    debugImplementation(testFixtures(project(":soundcore")))
+    debugImplementation(testFixtures(project(":samsung")))
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)

@@ -14,7 +14,10 @@ import kotlin.time.Duration.Companion.seconds
  * injection fields can be set at any time. Replies to one request go out as one chunk unless
  * [chunkSize] splits them. Delays run on [scope]'s clock (virtual time under `runTest`).
  */
-class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
+class FakeBmapDevice(
+    private val scope: CoroutineScope,
+    val profile: BoseProfile = BoseCatalog.QC_ULTRA_2,
+) : FrameTransport {
     private sealed interface Out {
         class Bytes(val bytes: ByteArray) : Out
 
@@ -26,6 +29,7 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
     private val outgoing = Channel<Out>(Channel.UNLIMITED)
     private val parser = FrameParser()
     private var linkUp = true
+    private var initReceived = !profile.requiresInitPacket
 
     private val payloads = mutableMapOf<Address, ByteArray>()
     private val errors = mutableMapOf<Address, ByteArray>()
@@ -69,6 +73,104 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
 
     init {
         for (exchange in Fixtures.all()) seed(exchange)
+        configureForProfile()
+    }
+
+    private fun configureForProfile() {
+        when (profile) {
+            BoseCatalog.QC_ULTRA_2 -> Unit
+            BoseCatalog.QC_ULTRA_2_EARBUDS -> {
+                payloads[QcUltra2.battery.address] = Hex.parse("3cffff013cffff023cffff0450ffff03")
+                payloads[QcUltra2.productName.address] = byteArrayOf(0) + "Bose QC Ultra Earbuds".toByteArray(Charsets.UTF_8)
+            }
+            BoseCatalog.QC_PRINCE -> {
+                payloads[QcUltra2.productName.address] = byteArrayOf(0) + "Bose QuietComfort".toByteArray(Charsets.UTF_8)
+                seed47ByteModes()
+                payloads.remove(QcUltra2.audioSettings.address)
+                errors[QcUltra2.audioSettings.address] = byteArrayOf(ErrorCodes.FUNC_NOT_SUPPORTED.toByte())
+            }
+            BoseCatalog.QC_45 -> {
+                payloads[QcUltra2.productName.address] = byteArrayOf(0) + "Bose QC45".toByteArray(Charsets.UTF_8)
+                seed47ByteModes()
+                payloads.remove(QcUltra2.audioSettings.address)
+                errors[QcUltra2.audioSettings.address] = byteArrayOf(ErrorCodes.FUNC_NOT_SUPPORTED.toByte())
+            }
+            BoseCatalog.QC_35 -> {
+                payloads[QcUltra2.productName.address] = byteArrayOf(0) + "Bose QC35 II".toByteArray(Charsets.UTF_8)
+                payloads[BoseCatalog.anr.address] = byteArrayOf(AnrMode.HIGH.code.toByte(), 0x0F)
+                modes.clear()
+                payloads.remove(QcUltra2.audioSettings.address)
+                payloads.remove(QcUltra2.currentMode.address)
+                payloads.remove(QcUltra2.favourites.address)
+                payloads.remove(QcUltra2.eq.address)
+                payloads.remove(QcUltra2.multipoint.address)
+                payloads.remove(QcUltra2.autoPlayPause.address)
+                payloads.remove(QcUltra2.autoAnswer.address)
+                errors[QcUltra2.allModes] = byteArrayOf(ErrorCodes.FUNC_NOT_SUPPORTED.toByte())
+                errors[QcUltra2.audioSettings.address] = byteArrayOf(ErrorCodes.FUNC_NOT_SUPPORTED.toByte())
+                errors[QcUltra2.eq.address] = byteArrayOf(ErrorCodes.FUNC_NOT_SUPPORTED.toByte())
+            }
+            BoseCatalog.ULTRA_OPEN -> {
+                payloads[QcUltra2.battery.address] = Hex.parse("55ffff015affff0255ffff0464ffff03")
+                payloads[QcUltra2.productName.address] = byteArrayOf(0) + "Bose Ultra Open".toByteArray(Charsets.UTF_8)
+                modes.clear()
+                modes[0] = makeMode48(0, editable = false, configured = true, name = "Stereo", spatial = Spatial.OFF)
+                modes[1] = makeMode48(1, editable = false, configured = true, name = "Immersion", spatial = Spatial.FIXED_TO_HEAD)
+                payloads[QcUltra2.currentMode.address] = byteArrayOf(0)
+                payloads.remove(QcUltra2.audioSettings.address)
+                errors[QcUltra2.audioSettings.address] = byteArrayOf(ErrorCodes.FUNC_NOT_SUPPORTED.toByte())
+            }
+        }
+    }
+
+    private fun seed47ByteModes() {
+        modes.clear()
+        modes[0] = makeMode47(0, editable = false, configured = true, name = "Quiet", cnc = 0, wind = false)
+        modes[1] = makeMode47(1, editable = false, configured = true, name = "Aware", cnc = 10, wind = false)
+        modes[2] = makeMode47(2, editable = true, configured = true, name = "Commute", cnc = 3, wind = true)
+        modes[3] = makeMode47(3, editable = true, configured = false, name = "None", cnc = 10, wind = false)
+        payloads[QcUltra2.currentMode.address] = byteArrayOf(0)
+        payloads[QcUltra2.favourites.address] = byteArrayOf(2, 0x00, 0x03)
+    }
+
+    private fun makeMode47(
+        index: Int,
+        editable: Boolean,
+        configured: Boolean,
+        name: String,
+        cnc: Int,
+        wind: Boolean,
+    ): ByteArray {
+        val out = ByteArray(47)
+        out[0] = index.toByte()
+        out[3] = if (editable) 1 else 0
+        out[4] = if (configured) 1 else 0
+        name.toByteArray(Charsets.UTF_8).copyInto(out, 6)
+        out[42] = cnc.toByte()
+        out[43] = 0
+        out[44] = Spatial.OFF.code.toByte()
+        out[46] = if (wind) 1 else 0
+        return out
+    }
+
+    private fun makeMode48(
+        index: Int,
+        editable: Boolean,
+        configured: Boolean,
+        name: String,
+        spatial: Spatial,
+    ): ByteArray {
+        val out = ByteArray(48)
+        out[0] = index.toByte()
+        out[3] = if (editable) 1 else 0
+        out[4] = if (configured) 1 else 0
+        name.toByteArray(Charsets.UTF_8).copyInto(out, 6)
+        out[42] = 0
+        out[43] = 0
+        out[44] = spatial.code.toByte()
+        out[46] = 0
+        out[47] = 0
+        return out
     }
 
     /** Current state of an address, for test assertions. */
@@ -152,7 +254,17 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
             }
             return
         }
+        if (frame.op == BmapOp.GET && address == BoseCatalog.initPacket) {
+            initReceived = true
+            push(status(address, ByteArray(0)).encode())
+            return
+        }
+        if (!initReceived) return
         if (frame.op == BmapOp.START && (address == QcUltra2.pairingMode || address == QcUltra2.powerOff)) {
+            if (address == QcUltra2.powerOff && !profile.supportsPowerOff) {
+                push(error(address, ErrorCodes.FUNC_NOT_SUPPORTED).encode())
+                return
+            }
             disconnect()
             return
         }
@@ -187,8 +299,12 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
             )
             BmapOp.SETGET -> listOf(setget(address, p))
             BmapOp.START -> when (address) {
-                QcUltra2.allModes -> drain()
-                QcUltra2.selectMode -> listOf(selectMode(p))
+                QcUltra2.allModes -> if (profile.modeLayout == ModeLayout.NONE) {
+                    listOf(error(address, ErrorCodes.FUNC_NOT_SUPPORTED))
+                } else {
+                    drain()
+                }
+                QcUltra2.selectMode -> selectMode(p)
                 else -> listOf(error(address, ErrorCodes.FUNC_NOT_SUPPORTED))
             }
             else -> listOf(error(address, ErrorCodes.FUNC_NOT_SUPPORTED))
@@ -218,21 +334,36 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
                 val old = payloads.getValue(address)
                 status(address, (p.copyOf(2) + old.copyOfRange(2, old.size)).also { payloads[address] = it })
             }
+            BoseCatalog.anr.address -> {
+                if (!profile.supportsAnr) {
+                    error(address, ErrorCodes.FUNC_NOT_SUPPORTED)
+                } else if (p.isEmpty() || AnrMode.fromCode(p[0].toInt() and 0xFF) == null) {
+                    error(address, ErrorCodes.INVALID_DATA)
+                } else {
+                    val reply = byteArrayOf(p[0], 0x0F)
+                    payloads[address] = reply
+                    status(address, reply)
+                }
+            }
             QcUltra2.Write.autoPlayPause.address, QcUltra2.Write.autoAnswer.address, QcUltra2.Write.favourites.address ->
                 status(address, p.also { payloads[address] = it })
             else -> error(address, ErrorCodes.FUNC_NOT_SUPPORTED)
         }
 
     /**
-     * Presets 0..3 are locked (Runtime error 8). Replies with the slot's new 48-byte STATUS, as
-     * fw 10.12.12 does (M4 device run; bosectl expected an echo of the write). Wind lands in STATUS `[46]`; `[45]` is left as it was (M4 device run). A `None`
-     * name clears the configured bit, as fw 10.12.12 does.
+     * Presets are locked (Runtime error 8). Replies with the slot's new 48-byte (or 47-byte for
+     * V47_39 models) STATUS, as fw 10.12.12 does. Wind lands in STATUS `[46]`; `[45]` is left as
+     * it was. A `None` name clears the configured bit.
      */
     private fun writeMode(p: ByteArray): BmapFrame {
         val address = QcUltra2.modeConfig
-        if (p.size != 40) return error(address, LENGTH)
+        if (profile.modeLayout == ModeLayout.READ_ONLY_48 || profile.modeLayout == ModeLayout.NONE) {
+            return error(address, ErrorCodes.FUNC_NOT_SUPPORTED)
+        }
+        val expectedLen = if (profile.modeLayout == ModeLayout.V47_39) 39 else 40
+        if (p.size != expectedLen) return error(address, LENGTH)
         val index = p[0].toInt() and 0xFF
-        if (index in QcUltra2.presetSlots) return error(address, ErrorCodes.RUNTIME)
+        if (index in profile.presetSlots) return error(address, ErrorCodes.RUNTIME)
         val old = modes[index] ?: return error(address, ErrorCodes.INVALID_DATA)
         val status = old.copyOf()
         status[1] = p[1]
@@ -244,21 +375,33 @@ class FakeBmapDevice(private val scope: CoroutineScope) : FrameTransport {
         status[43] = p[36]
         status[44] = p[37]
         status[46] = p[38]
-        status[47] = p[39]
+        if (expectedLen == 40 && status.size >= 48) {
+            status[47] = p[39]
+        }
         modes[index] = status
         return status(address, status)
     }
 
     /**
      * START 31.3 `[idx, prompt]`. Copying the mode's settings into 31.10 is inferred from one
-     * observation (M0 E5: switching to Quiet turned spatial from 02 to 00).
+     * observation (M0 E5: switching to Quiet turned spatial from 02 to 00). On `qc_prince`, the
+     * device replies with PROCESSING followed by STATUS [31.3].
      */
-    private fun selectMode(p: ByteArray): BmapFrame {
+    private fun selectMode(p: ByteArray): List<BmapFrame> {
         val address = QcUltra2.selectMode
-        val mode = p.firstOrNull()?.let { modes[it.toInt() and 0xFF] } ?: return error(address, ErrorCodes.INVALID_DATA)
+        val mode = p.firstOrNull()?.let { modes[it.toInt() and 0xFF] } ?: return listOf(error(address, ErrorCodes.INVALID_DATA))
         payloads[QcUltra2.currentMode.address] = byteArrayOf(mode[0])
-        payloads[QcUltra2.audioSettings.address] = byteArrayOf(mode[42], mode[43], mode[44], mode[45], mode[47])
-        return BmapFrame(address.fblock, address.func, BmapOp.RESULT, byteArrayOf(mode[0]))
+        if (profile.supportsLiveAudioSettings && mode.size >= 48) {
+            payloads[QcUltra2.audioSettings.address] = byteArrayOf(mode[42], mode[43], mode[44], mode[45], mode[47])
+        }
+        return if (profile == BoseCatalog.QC_PRINCE) {
+            listOf(
+                BmapFrame(address.fblock, address.func, BmapOp.PROCESSING),
+                BmapFrame(address.fblock, address.func, BmapOp.STATUS, byteArrayOf(mode[0])),
+            )
+        } else {
+            listOf(BmapFrame(address.fblock, address.func, BmapOp.RESULT, byteArrayOf(mode[0])))
+        }
     }
 
     /** Same order as the M0 capture: PROCESSING, 31.0, 31.2, 31.3, 31.6 per slot, 31.8, 31.10, 31.11, RESULT. */

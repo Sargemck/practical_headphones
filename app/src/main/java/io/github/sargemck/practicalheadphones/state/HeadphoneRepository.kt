@@ -2,24 +2,17 @@ package io.github.sargemck.practicalheadphones.state
 
 import io.github.sargemck.practicalheadphones.bmap.AudioSettings
 import io.github.sargemck.practicalheadphones.bmap.BmapConnection
-import io.github.sargemck.practicalheadphones.bmap.BmapException
-import io.github.sargemck.practicalheadphones.bmap.CloseReason
-import io.github.sargemck.practicalheadphones.bmap.BmapFrame
-import io.github.sargemck.practicalheadphones.bmap.BmapOp
-import io.github.sargemck.practicalheadphones.bmap.ConnectionState
-import io.github.sargemck.practicalheadphones.bmap.EqBandSetting
 import io.github.sargemck.practicalheadphones.bmap.Favourites
-import io.github.sargemck.practicalheadphones.bmap.Headphones
 import io.github.sargemck.practicalheadphones.bmap.ModeConfig
-import io.github.sargemck.practicalheadphones.bmap.ModesSnapshot
-import io.github.sargemck.practicalheadphones.bmap.ProfileError
 import io.github.sargemck.practicalheadphones.bmap.ProfileSettings
 import io.github.sargemck.practicalheadphones.bmap.Profiles
-import io.github.sargemck.practicalheadphones.bmap.QcUltra2
-import io.github.sargemck.practicalheadphones.bmap.ReadFeature
 import io.github.sargemck.practicalheadphones.bmap.SelfVoiceLevel
-import io.github.sargemck.practicalheadphones.bmap.WriteFeature
-import io.github.sargemck.practicalheadphones.bmap.WriteReply
+import io.github.sargemck.practicalheadphones.driver.BoseDriver
+import io.github.sargemck.practicalheadphones.driver.DriverConnector
+import io.github.sargemck.practicalheadphones.driver.DriverException
+import io.github.sargemck.practicalheadphones.driver.DriverState
+import io.github.sargemck.practicalheadphones.driver.HeadphoneDriver
+import io.github.sargemck.practicalheadphones.driver.SectionKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -37,7 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-/** Opens a connection whose first BMAP request was answered. Throws if none could be opened. */
+/** Opens a BMAP connection whose first request was answered. Throws if none could be opened. */
 fun interface Connector {
     suspend fun connect(scope: CoroutineScope): BmapConnection
 }
@@ -52,19 +45,37 @@ data class LiveUpdates(
 
 /**
  * Owns the headphones' state. Link decisions come from [LinkPolicy]; this class carries them
- * out: connect, initial load, live updates and optimistic writes.
+ * out: connect, initial load, live updates and optimistic writes via any [HeadphoneDriver].
  *
  * Must run on a single-threaded dispatcher ([scope]); the bookkeeping maps aren't synchronised.
  */
 class HeadphoneRepository(
     private val scope: CoroutineScope,
-    private val connector: Connector,
+    private val driverConnector: DriverConnector,
     private val clock: () -> Long,
     private val log: (String) -> Unit = {},
     private val live: LiveUpdates = LiveUpdates(),
     private val lastKnownStore: LastKnownStore = LastKnownStore.None,
+    private val onSelectDevice: (String) -> Unit = {},
 ) : HeadphoneController {
-    private enum class Key { Name, Battery, Modes, Audio, Eq, SelfVoice, AutoPlayPause, AutoAnswer, Multipoint }
+    /** Compatibility constructor for Bose-only [Connector] callers and tests. */
+    constructor(
+        scope: CoroutineScope,
+        connector: Connector,
+        clock: () -> Long,
+        log: (String) -> Unit = {},
+        live: LiveUpdates = LiveUpdates(),
+        lastKnownStore: LastKnownStore = LastKnownStore.None,
+    ) : this(
+        scope = scope,
+        driverConnector = DriverConnector { sessionScope ->
+            BoseDriver(connector.connect(sessionScope), sessionScope, log = log)
+        },
+        clock = clock,
+        log = log,
+        live = live,
+        lastKnownStore = lastKnownStore,
+    )
 
     private data class Visibility(val uiVisible: Boolean, val screenOn: Boolean)
 
@@ -79,10 +90,10 @@ class HeadphoneRepository(
     private val visibility = MutableStateFlow(Visibility(uiVisible = false, screenOn = true))
 
     private var session: Job? = null
-    private var headphones: Headphones? = null
+    private var driver: HeadphoneDriver? = null
 
-    private val writeStarts = mutableMapOf<Key, Int>()
-    private val writesActive = mutableMapOf<Key, Int>()
+    private val writeStarts = mutableMapOf<SectionKey, Int>()
+    private val writesActive = mutableMapOf<SectionKey, Int>()
 
     private var audioTarget: AudioSettings? = null
     private var audioConfirmed: AudioSettings? = null
@@ -100,7 +111,15 @@ class HeadphoneRepository(
 
     fun onScreen(on: Boolean) = visibility.update { it.copy(screenOn = on) }
 
-    fun setBoseAppInstalled(installed: Boolean) = _state.update { it.copy(boseAppInstalled = installed) }
+    fun setBoseAppInstalled(installed: Boolean, companionName: String? = null) =
+        _state.update { it.copy(boseAppInstalled = installed, companionAppName = companionName) }
+
+    fun setAvailableDevices(devices: List<PairedHeadphoneChoice>) =
+        _state.update { it.copy(availableDevices = devices) }
+
+    override fun selectDevice(address: String) {
+        onSelectDevice(address)
+    }
 
     override fun reconnect() {
         events.trySend(LinkEvent.UserReconnect)
@@ -131,8 +150,8 @@ class HeadphoneRepository(
         endSession()
         session = scope.launch {
             val started = clock()
-            val connection = try {
-                connector.connect(this)
+            val d = try {
+                driverConnector.connect(this)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -140,21 +159,38 @@ class HeadphoneRepository(
                 events.send(LinkEvent.ConnectFailed)
                 return@launch
             }
-            val h = Headphones(connection)
-            headphones = h
+            driver = d
             events.send(LinkEvent.ConnectSucceeded)
             launch {
-                val closed = connection.state.first { it is ConnectionState.Closed } as ConnectionState.Closed
-                headphones = null
+                val closed = d.state.first { it is DriverState.Closed } as DriverState.Closed
+                driver = null
                 events.send(LinkEvent.SocketClosed(closed.reason, clock()))
             }
-            launch { connection.unsolicited.collect { applyFrame(it) } }
+            launch {
+                d.updates.collect { (key, mutate) ->
+                    if ((writesActive[key] ?: 0) == 0) {
+                        _state.update { s ->
+                            val updated = mutate(s)
+                            if (key == SectionKey.Audio) {
+                                updated.audio.valueOrNull()?.let { audioConfirmed = it }
+                            }
+                            updated
+                        }
+                    }
+                }
+            }
             try {
-                initialLoad(h)
+                d.initialLoad { mutate ->
+                    _state.update { s ->
+                        val updated = mutate(s)
+                        updated.audio.valueOrNull()?.let { audioConfirmed = it }
+                        updated
+                    }
+                }
                 log("LOADED in ${clock() - started} ms")
                 lastKnownStore.save(_state.value.copy(lastKnown = null))
-                if (live.polling) poll(h)
-            } catch (e: BmapException) {
+                if (live.polling) poll(d)
+            } catch (e: DriverException) {
                 log("session ended: ${e.message}")
             }
         }
@@ -163,7 +199,8 @@ class HeadphoneRepository(
     private fun endSession() {
         session?.cancel()
         session = null
-        headphones = null
+        driver?.close()
+        driver = null
         audioWriter = null
         audioTarget = null
         audioConfirmed = null
@@ -171,111 +208,33 @@ class HeadphoneRepository(
         writesActive.clear()
     }
 
-    // Initial load
-
-    private suspend fun initialLoad(h: Headphones) {
-        loadModes(h)
-        load({ h.read(QcUltra2.battery) }) { s -> _state.update { it.copy(battery = s) } }
-        load({ h.read(QcUltra2.productName) }) { s -> _state.update { it.copy(name = s) } }
-        load({ h.read(QcUltra2.firmware) }) { s -> _state.update { it.copy(firmware = s) } }
-        load({ h.read(QcUltra2.eq) }) { s -> _state.update { it.copy(eq = s) } }
-        load({ h.read(QcUltra2.selfVoice) }) { s -> _state.update { it.copy(selfVoice = s) } }
-        load({ h.read(QcUltra2.autoPlayPause) }) { s -> _state.update { it.copy(autoPlayPause = s) } }
-        load({ h.read(QcUltra2.autoAnswer) }) { s -> _state.update { it.copy(autoAnswer = s) } }
-        load({ h.read(QcUltra2.multipoint) }) { s -> _state.update { it.copy(multipoint = s) } }
-    }
-
-    private suspend fun loadModes(h: Headphones) {
-        val snapshot = attempt { h.allModes() }
-        if (snapshot !is Section.Loaded) {
-            _state.update { it.copy(modes = snapshot.cast(), audio = snapshot.cast()) }
-            return
-        }
-        applyModes(h, snapshot.value)
-    }
-
-    /** Builds the modes and audio sections from a drain, reading what the drain left out. */
-    private suspend fun applyModes(h: Headphones, value: ModesSnapshot) {
-        val current = value.currentMode?.let { Section.Loaded(it) } ?: attempt { h.read(QcUltra2.currentMode) }
-        val favourites = value.favourites ?: attempt { h.read(QcUltra2.favourites) }.valueOrNull()
-        val modes = when (current) {
-            is Section.Loaded -> Section.Loaded(ModesSection(value.modes.filter(Profiles::isConfigured), current.value, favourites))
-            else -> current.cast()
-        }
-        val audio = value.audioSettings?.let { Section.Loaded(it) } ?: attempt { h.read(QcUltra2.audioSettings) }
-        audioConfirmed = audio.valueOrNull()
-        _state.update { it.copy(modes = modes, audio = audio) }
-    }
-
-    private suspend fun <T> load(read: suspend () -> T, set: (Section<T>) -> Unit) = set(attempt(read))
-
     /** Re-reads every section that failed to load, each with the usual single retry. */
     override fun retryFailed() {
-        val h = headphones ?: return message("Not connected")
+        val d = driver ?: return message("Not connected")
         launchInSession {
             try {
-                if (_state.value.modes is Section.Failed) {
-                    _state.update { it.copy(modes = Section.Loading, audio = Section.Loading) }
-                    loadModes(h)
-                } else {
-                    retry({ it.audio }, { h.read(QcUltra2.audioSettings) }) { s, v -> audioConfirmed = v.valueOrNull(); s.copy(audio = v) }
+                d.retryFailed({ _state.value }) { mutate ->
+                    _state.update { s ->
+                        val updated = mutate(s)
+                        updated.audio.valueOrNull()?.let { audioConfirmed = it }
+                        updated
+                    }
                 }
-                retry({ it.battery }, { h.read(QcUltra2.battery) }) { s, v -> s.copy(battery = v) }
-                retry({ it.name }, { h.read(QcUltra2.productName) }) { s, v -> s.copy(name = v) }
-                retry({ it.firmware }, { h.read(QcUltra2.firmware) }) { s, v -> s.copy(firmware = v) }
-                retry({ it.eq }, { h.read(QcUltra2.eq) }) { s, v -> s.copy(eq = v) }
-                retry({ it.selfVoice }, { h.read(QcUltra2.selfVoice) }) { s, v -> s.copy(selfVoice = v) }
-                retry({ it.autoPlayPause }, { h.read(QcUltra2.autoPlayPause) }) { s, v -> s.copy(autoPlayPause = v) }
-                retry({ it.autoAnswer }, { h.read(QcUltra2.autoAnswer) }) { s, v -> s.copy(autoAnswer = v) }
-                retry({ it.multipoint }, { h.read(QcUltra2.multipoint) }) { s, v -> s.copy(multipoint = v) }
-            } catch (e: BmapException) {
+            } catch (e: DriverException) {
                 log("retry ended: ${e.message}")
             }
         }
     }
 
-    private suspend fun <T> retry(
-        get: (HeadphoneState) -> Section<T>,
-        read: suspend () -> T,
-        set: (HeadphoneState, Section<T>) -> HeadphoneState,
-    ) {
-        if (get(_state.value) !is Section.Failed) return
-        _state.update { set(it, Section.Loading) }
-        val result = attempt(read)
-        _state.update { set(it, result) }
-    }
-
-    /** One read, retried once on a device error or malformed reply. Disconnects end the session. */
-    private suspend fun <T> attempt(read: suspend () -> T): Section<T> {
-        repeat(2) { i ->
-            try {
-                return Section.Loaded(read())
-            } catch (e: BmapException.Unsupported) {
-                return Section.Unsupported
-            } catch (e: BmapException.Disconnected) {
-                throw e
-            } catch (e: BmapException.Timeout) {
-                throw BmapException.Disconnected(CloseReason.Unresponsive)
-            } catch (e: BmapException) {
-                log("read failed (attempt ${i + 1}): ${e.message}")
-                if (i == 1) return Section.Failed(e.message ?: "read failed")
-            }
-        }
-        error("unreachable")
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun <T> Section<*>.cast(): Section<T> = this as Section<T>
-
     // Live updates
 
-    private suspend fun poll(h: Headphones) {
+    private suspend fun poll(d: HeadphoneDriver) {
         var lastBattery = clock()
         while (true) {
             val v = visibility.value
             if (!v.uiVisible && !v.screenOn) {
                 visibility.first { it.uiVisible || it.screenOn }
-                pollOnce(h, battery = true)
+                pollOnce(d, battery = true)
                 lastBattery = clock()
                 continue
             }
@@ -283,76 +242,33 @@ class HeadphoneRepository(
             val changed = withTimeoutOrNull(interval) { visibility.drop(1).first() }
             if (changed != null) continue
             val battery = clock() - lastBattery >= live.batteryMs
-            pollOnce(h, battery)
+            pollOnce(d, battery)
             if (battery) lastBattery = clock()
         }
     }
 
-    private suspend fun pollOnce(h: Headphones, battery: Boolean) {
-        guarded(Key.Modes, { h.read(QcUltra2.currentMode) }) { applyCurrentMode(it) }
-        guarded(Key.Audio, { h.read(QcUltra2.audioSettings) }) { applyAudio(it) }
-        if (battery) guarded(Key.Battery, { h.read(QcUltra2.battery) }) { value -> _state.update { it.copy(battery = Section.Loaded(value)) } }
-    }
-
-    /**
-     * Reads and applies, unless a write to [key] was pending or in flight when the read was
-     * sent, or started since. Stops a queued poll from reverting an optimistic value.
-     */
-    private suspend fun <T> guarded(key: Key, read: suspend () -> T, apply: (T) -> Unit) {
-        val startsBefore = writeStarts[key] ?: 0
-        if ((writesActive[key] ?: 0) > 0) return
-        val value = try {
-            read()
-        } catch (e: BmapException.Unsupported) {
-            return
-        } catch (e: BmapException.DeviceError) {
-            log("poll failed: ${e.message}")
-            return
-        } catch (e: BmapException.Malformed) {
-            log("poll failed: ${e.message}")
-            return
+    private suspend fun pollOnce(d: HeadphoneDriver, battery: Boolean) {
+        d.poll(battery) { key, read ->
+            val startsBefore = writeStarts[key] ?: 0
+            if ((writesActive[key] ?: 0) > 0) return@poll
+            val mutate = read() ?: return@poll
+            if ((writeStarts[key] ?: 0) != startsBefore || (writesActive[key] ?: 0) > 0) {
+                log("poll of $key dropped: write in progress")
+                return@poll
+            }
+            _state.update { s ->
+                val updated = mutate(s)
+                if (key == SectionKey.Audio) {
+                    updated.audio.valueOrNull()?.let { audioConfirmed = it }
+                }
+                updated
+            }
         }
-        if ((writeStarts[key] ?: 0) != startsBefore || (writesActive[key] ?: 0) > 0) {
-            log("poll of $key dropped: write in progress")
-            return
-        }
-        apply(value)
-    }
-
-    private fun applyCurrentMode(index: Int) {
-        val modes = _state.value.modes.valueOrNull() ?: return
-        if (modes.current != index) _state.update { it.copy(modes = Section.Loaded(modes.copy(current = index))) }
     }
 
     private fun applyAudio(value: AudioSettings) {
         audioConfirmed = value
         _state.update { it.copy(audio = Section.Loaded(value)) }
-    }
-
-    /** Unsolicited frames go through the read parsers into state, with the same write guard as polls. */
-    private fun applyFrame(frame: BmapFrame) {
-        if (frame.op != BmapOp.STATUS) return
-        fun <T> on(feature: ReadFeature<T>, key: Key, apply: (T) -> Unit) {
-            if (frame.address != feature.address) return
-            if ((writesActive[key] ?: 0) > 0) return
-            runCatching { feature.parse(frame.payload) }
-                .onSuccess(apply)
-                .onFailure { log("unsolicited ${frame.address} unparsed: ${it.message}") }
-        }
-        log("unsolicited $frame")
-        on(QcUltra2.currentMode, Key.Modes, ::applyCurrentMode)
-        on(QcUltra2.audioSettings, Key.Audio, ::applyAudio)
-        on(QcUltra2.battery, Key.Battery) { v -> _state.update { it.copy(battery = Section.Loaded(v)) } }
-        on(QcUltra2.favourites, Key.Modes) { v ->
-            val modes = _state.value.modes.valueOrNull() ?: return@on
-            _state.update { it.copy(modes = Section.Loaded(modes.copy(favourites = v))) }
-        }
-        on(QcUltra2.eq, Key.Eq) { v -> _state.update { it.copy(eq = Section.Loaded(v)) } }
-        on(QcUltra2.selfVoice, Key.SelfVoice) { v -> _state.update { it.copy(selfVoice = Section.Loaded(v)) } }
-        on(QcUltra2.autoPlayPause, Key.AutoPlayPause) { v -> _state.update { it.copy(autoPlayPause = Section.Loaded(v)) } }
-        on(QcUltra2.autoAnswer, Key.AutoAnswer) { v -> _state.update { it.copy(autoAnswer = Section.Loaded(v)) } }
-        on(QcUltra2.productName, Key.Name) { v -> _state.update { it.copy(name = Section.Loaded(v)) } }
-        on(QcUltra2.multipoint, Key.Multipoint) { v -> _state.update { it.copy(multipoint = Section.Loaded(v)) } }
     }
 
     // Writes
@@ -363,25 +279,24 @@ class HeadphoneRepository(
      */
     override fun setAudio(change: (AudioSettings) -> AudioSettings) {
         val current = _state.value.audio.valueOrNull() ?: return message("Not connected")
-        val h = headphones ?: return message("Not connected")
+        val d = driver ?: return message("Not connected")
         val wanted = change(current)
         if (audioConfirmed == null) audioConfirmed = current
         audioTarget = wanted
-        started(Key.Audio)
+        started(SectionKey.Audio)
         _state.update { it.copy(audio = Section.Loaded(wanted)) }
         if (audioWriter?.isActive == true) return
         val owner = session ?: return
         audioWriter = scope.launch(owner) {
-            active(Key.Audio) {
+            active(SectionKey.Audio) {
                 while (true) {
                     val target = audioTarget ?: break
                     audioTarget = null
                     try {
-                        val reply = h.write(QcUltra2.Write.audioSettings, target)
-                        val applied = (reply as? WriteReply.Applied)?.value ?: target
+                        val applied = d.setAudio(target)
                         audioConfirmed = applied
                         if (audioTarget == null) _state.update { it.copy(audio = Section.Loaded(applied)) }
-                    } catch (e: BmapException) {
+                    } catch (e: DriverException) {
                         audioTarget = null
                         val confirmed = audioConfirmed
                         if (confirmed != null) _state.update { it.copy(audio = Section.Loaded(confirmed)) }
@@ -394,23 +309,80 @@ class HeadphoneRepository(
         }
     }
 
-    fun toggleAnc() = setAudio { it.copy(anc = !it.anc) }
+    fun toggleAnc() {
+        val state = _state.value
+        if (state.audio is Section.Loaded) {
+            setAudio { it.copy(anc = !it.anc) }
+        } else if (state.discreteAnc is Section.Loaded) {
+            val anc = state.discreteAnc.value
+            val off = anc.options.firstOrNull { it.id.equals("OFF", ignoreCase = true) }?.id
+            val on = anc.options.firstOrNull { !it.id.equals("OFF", ignoreCase = true) }?.id
+            if (off != null && on != null) {
+                setDiscreteAnc(if (anc.selectedId.equals(off, ignoreCase = true)) on else off)
+            }
+        } else {
+            message("Not connected")
+        }
+    }
+
+    override fun setDiscreteAnc(optionId: String) {
+        val current = _state.value.discreteAnc.valueOrNull() ?: return message("Not connected")
+        writeSection(
+            key = SectionKey.DiscreteAnc,
+            optimistic = current.copy(selectedId = optionId),
+            get = { it.discreteAnc },
+            set = { s, v -> s.copy(discreteAnc = v) },
+            failure = "Couldn't change noise control",
+        ) { it.setDiscreteAnc(optionId) }
+    }
+
+    override fun setAmbientLevel(level: Int) {
+        val current = _state.value.discreteAnc.valueOrNull() ?: return message("Not connected")
+        writeSection(
+            key = SectionKey.DiscreteAnc,
+            optimistic = current.copy(ambientLevel = level),
+            get = { it.discreteAnc },
+            set = { s, v -> s.copy(discreteAnc = v) },
+            failure = "Couldn't change ambient sound",
+        ) { it.setAmbientLevel(level) }
+    }
+
+    override fun setFocusOnVoice(on: Boolean) {
+        val current = _state.value.discreteAnc.valueOrNull() ?: return message("Not connected")
+        writeSection(
+            key = SectionKey.DiscreteAnc,
+            optimistic = current.copy(focusOnVoice = on),
+            get = { it.discreteAnc },
+            set = { s, v -> s.copy(discreteAnc = v) },
+            failure = "Couldn't change focus on voice",
+        ) { it.setFocusOnVoice(on) }
+    }
+
+    override fun setSpeakToChat(on: Boolean) {
+        writeSection(
+            key = SectionKey.SpeakToChat,
+            optimistic = on,
+            get = { it.speakToChat },
+            set = { s, v -> s.copy(speakToChat = v) },
+            failure = "Couldn't change Speak-to-Chat",
+        ) { it.setSpeakToChat(on) }
+    }
 
     /** Switches to a configured mode, then takes the fresh audio settings the switch produced. */
     override fun selectMode(index: Int) {
         val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
-        val h = headphones ?: return message("Not connected")
+        val d = driver ?: return message("Not connected")
         if (modes.modes.none { it.index == index }) return message("That mode doesn't exist")
         val previous = modes.current
-        started(Key.Modes)
-        started(Key.Audio)
+        started(SectionKey.Modes)
+        started(SectionKey.Audio)
         _state.update { it.copy(modes = Section.Loaded(modes.copy(current = index))) }
         launchInSession {
-            active(Key.Modes) {
-                active(Key.Audio) {
+            active(SectionKey.Modes) {
+                active(SectionKey.Audio) {
                     try {
-                        applyAudio(h.selectMode(index))
-                    } catch (e: BmapException) {
+                        d.selectMode(index)?.let(::applyAudio)
+                    } catch (e: DriverException) {
                         _state.value.modes.valueOrNull()?.let { m ->
                             _state.update { it.copy(modes = Section.Loaded(m.copy(current = previous))) }
                         }
@@ -429,41 +401,30 @@ class HeadphoneRepository(
 
     override fun setEqBand(bandId: Int, value: Int) {
         val bands = _state.value.eq.valueOrNull() ?: return message("Not connected")
-        write(
-            key = Key.Eq,
-            feature = QcUltra2.Write.eqBand,
-            value = EqBandSetting(bandId, value),
+        writeSection(
+            key = SectionKey.Eq,
             optimistic = bands.map { if (it.bandId == bandId) it.copy(current = value) else it },
-            read = QcUltra2.eq,
             get = { it.eq },
             set = { s, v -> s.copy(eq = v) },
             failure = "Couldn't change the equaliser",
-        )
+        ) { it.setEqBand(bandId, value) }
     }
 
-    /**
-     * Sets all three EQ bands as one change (an EQ preset). The device takes one band per write,
-     * so the bands that differ are written in order. On failure the screen shows the last value
-     * the device confirmed, or the previous one if nothing was written.
-     */
     override fun setEq(bass: Int, mid: Int, treble: Int) {
-        val h = headphones ?: return message("Not connected")
+        val d = driver ?: return message("Not connected")
         val previous = _state.value.eq.valueOrNull() ?: return message("Not connected")
         val wanted = mapOf(0 to bass, 1 to mid, 2 to treble)
         val changes = previous.filter { band -> wanted[band.bandId].let { it != null && it != band.current } }
         if (changes.isEmpty()) return
-        started(Key.Eq)
+        started(SectionKey.Eq)
         _state.update { it.copy(eq = Section.Loaded(previous.map { b -> b.copy(current = wanted[b.bandId] ?: b.current) })) }
         launchInSession {
-            active(Key.Eq) {
+            active(SectionKey.Eq) {
                 var confirmed = previous
                 try {
-                    for (band in changes) {
-                        val reply = h.write(QcUltra2.Write.eqBand, EqBandSetting(band.bandId, wanted.getValue(band.bandId)))
-                        confirmed = (reply as? WriteReply.Applied)?.value ?: h.read(QcUltra2.eq)
-                    }
+                    confirmed = d.setEq(bass, mid, treble, previous) { confirmed = it }
                     _state.update { it.copy(eq = Section.Loaded(confirmed)) }
-                } catch (e: BmapException) {
+                } catch (e: DriverException) {
                     _state.update { it.copy(eq = Section.Loaded(confirmed)) }
                     message("Couldn't change the equaliser")
                     log("eq write failed: ${e.message}")
@@ -472,19 +433,48 @@ class HeadphoneRepository(
         }
     }
 
+    override fun setEqPreset(presetId: String) {
+        val bands = _state.value.eq.valueOrNull() ?: return message("Not connected")
+        val preset = _state.value.eqPresets?.firstOrNull { it.id == presetId }
+        val optimistic = if (preset != null && preset.values.size == bands.size) {
+            bands.sortedBy { it.bandId }.mapIndexed { i, b -> b.copy(current = preset.values[i]) }
+        } else {
+            bands
+        }
+        writeSection(
+            key = SectionKey.Eq,
+            optimistic = optimistic,
+            get = { it.eq },
+            set = { s, v -> s.copy(eq = v) },
+            failure = "Couldn't change the equaliser",
+        ) { it.setEqPreset(presetId) }
+    }
+
     override fun setSelfVoice(level: SelfVoiceLevel) {
         val current = _state.value.selfVoice.valueOrNull() ?: return message("Not connected")
-        write(Key.SelfVoice, QcUltra2.Write.selfVoice, level, current.copy(level = level), QcUltra2.selfVoice, { it.selfVoice }, { s, v -> s.copy(selfVoice = v) }, "Couldn't change Self Voice")
+        writeSection(
+            key = SectionKey.SelfVoice,
+            optimistic = current.copy(level = level),
+            get = { it.selfVoice },
+            set = { s, v -> s.copy(selfVoice = v) },
+            failure = "Couldn't change Self Voice",
+        ) { it.setSelfVoice(level) }
     }
 
     override fun setAutoPlayPause(on: Boolean) =
-        write(Key.AutoPlayPause, QcUltra2.Write.autoPlayPause, on, on, QcUltra2.autoPlayPause, { it.autoPlayPause }, { s, v -> s.copy(autoPlayPause = v) }, "Couldn't change auto play/pause")
+        writeSection(SectionKey.AutoPlayPause, on, { it.autoPlayPause }, { s, v -> s.copy(autoPlayPause = v) }, "Couldn't change auto play/pause") {
+            it.setAutoPlayPause(on)
+        }
 
     override fun setAutoAnswer(on: Boolean) =
-        write(Key.AutoAnswer, QcUltra2.Write.autoAnswer, on, on, QcUltra2.autoAnswer, { it.autoAnswer }, { s, v -> s.copy(autoAnswer = v) }, "Couldn't change auto answer")
+        writeSection(SectionKey.AutoAnswer, on, { it.autoAnswer }, { s, v -> s.copy(autoAnswer = v) }, "Couldn't change auto answer") {
+            it.setAutoAnswer(on)
+        }
 
     override fun setName(name: String) =
-        write(Key.Name, QcUltra2.Write.productName, name, name.trim(), QcUltra2.productName, { it.name }, { s, v -> s.copy(name = v) }, "Couldn't rename the headphones")
+        writeSection(SectionKey.Name, name.trim(), { it.name }, { s, v -> s.copy(name = v) }, "Couldn't rename the headphones") {
+            it.setName(name)
+        }
 
     /** Adds or removes [index] from the favourites, built from cached state. */
     override fun toggleFavourite(index: Int) {
@@ -494,32 +484,23 @@ class HeadphoneRepository(
     }
 
     fun setFavourites(favourites: Favourites) =
-        write(
-            key = Key.Modes,
-            feature = QcUltra2.Write.favourites,
-            value = favourites,
+        writeSection(
+            key = SectionKey.Modes,
             optimistic = favourites,
-            read = QcUltra2.favourites,
             get = { s -> s.modes.valueOrNull()?.favourites?.let { Section.Loaded(it) } ?: Section.Loading },
             set = { s, v -> s.modes.valueOrNull()?.let { m -> s.copy(modes = Section.Loaded(m.copy(favourites = v.valueOrNull()))) } ?: s },
             failure = "Couldn't change favourites",
-        )
+        ) { it.setFavourites(favourites) }
 
-    /**
-     * Optimistic write: show [optimistic], send, then reconcile. A parsed reply is taken as the
-     * truth; a raw (unverified) reply is confirmed with one GET. Failure rolls back and tells the user.
-     */
-    private fun <T, S> write(
-        key: Key,
-        feature: WriteFeature<T, S>,
-        value: T,
+    private fun <S> writeSection(
+        key: SectionKey,
         optimistic: S,
-        read: ReadFeature<S>,
         get: (HeadphoneState) -> Section<S>,
         set: (HeadphoneState, Section<S>) -> HeadphoneState,
         failure: String,
+        send: suspend (HeadphoneDriver) -> S,
     ) {
-        val h = headphones ?: return message("Not connected")
+        val d = driver ?: return message("Not connected")
         val previous = get(_state.value)
         if (previous !is Section.Loaded) return message("Not connected")
         started(key)
@@ -527,18 +508,12 @@ class HeadphoneRepository(
         launchInSession {
             active(key) {
                 try {
-                    val confirmed = when (val reply = h.write(feature, value)) {
-                        is WriteReply.Applied -> reply.value
-                        is WriteReply.Raw -> {
-                            log("write ${feature.address} raw reply ${reply.frame}")
-                            h.read(read)
-                        }
-                    }
+                    val confirmed = send(d)
                     _state.update { set(it, Section.Loaded(confirmed)) }
-                } catch (e: BmapException) {
+                } catch (e: DriverException) {
                     _state.update { set(it, previous) }
                     message(failure)
-                    log("write ${feature.address} failed: ${e.message}")
+                    log("write $key failed: ${e.message}")
                 }
             }
         }
@@ -549,41 +524,35 @@ class HeadphoneRepository(
     /** Creates a mode in the first free slot from [settings], then switches to it. */
     override fun createMode(name: String, settings: ProfileSettings) {
         val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
-        val slot = Profiles.findFreeSlot(modes.modes) ?: return message("All custom modes are in use")
-        if (Profiles.nameProblem(name, modes.modes) != null) return message("That name can't be used")
+        val caps = _state.value.capabilities
+        val slot = Profiles.findFreeSlot(modes.modes, caps.editableSlots) ?: return message("All custom modes are in use")
+        if (Profiles.nameProblem(name, modes.modes, presetNames = caps.presetNames) != null) return message("That name can't be used")
         val mode = ModeConfig(slot, 0, 0, editable = true, configured = true, name.trim(), settings.cnc, false, settings.spatial, settings.wind, settings.anc)
         val optimistic = modes.copy(modes = (modes.modes + mode).sortedBy { it.index }, current = slot)
-        changeModes(optimistic, audioOf(mode), "Couldn't create the mode") { h ->
-            h.selectMode(h.createProfile(name, settings))
+        changeModes(optimistic, if (_state.value.audio is Section.Loaded) audioOf(mode) else null, "Couldn't create the mode") { d ->
+            d.createMode(name, settings)
         }
     }
 
-    /**
-     * Renames and/or changes a custom mode. If it's the current mode, switches to it again so the
-     * change is heard now (rewriting the current slot isn't known to reach [31.10]).
-     */
     override fun updateMode(index: Int, name: String, settings: ProfileSettings) {
         val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
+        val caps = _state.value.capabilities
         val old = modes.modes.firstOrNull { it.index == index } ?: return message("That mode doesn't exist")
-        if (index in QcUltra2.presetSlots) return message("Bose presets can't be changed")
-        if (Profiles.nameProblem(name, modes.modes, except = index) != null) return message("That name can't be used")
+        if (index in caps.presetSlots) return message("Bose presets can't be changed")
+        if (Profiles.nameProblem(name, modes.modes, except = index, presetNames = caps.presetNames) != null) return message("That name can't be used")
         val mode = old.copy(name = name.trim(), cnc = settings.cnc, spatial = settings.spatial, wind = settings.wind, anc = settings.anc)
         val current = modes.current == index
         val optimistic = modes.copy(modes = modes.modes.map { if (it.index == index) mode else it })
-        changeModes(optimistic, if (current) audioOf(mode) else null, "Couldn't save the mode") { h ->
-            h.updateMode(index, rename = name, settings = settings)
-            if (current) h.selectMode(index)
+        changeModes(optimistic, if (current && _state.value.audio is Section.Loaded) audioOf(mode) else null, "Couldn't save the mode") { d ->
+            d.updateMode(index, name, settings, isCurrent = current)
         }
     }
 
-    /**
-     * Deletes a custom mode. If it's current, switches to Quiet first. If it's starred, unstars it
-     * first, so the headphones' button never cycles to an empty slot.
-     */
     override fun deleteMode(index: Int) {
         val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
+        val caps = _state.value.capabilities
         if (modes.modes.none { it.index == index }) return message("That mode doesn't exist")
-        if (index in QcUltra2.presetSlots) return message("Bose presets can't be deleted")
+        if (index in caps.presetSlots) return message("Bose presets can't be deleted")
         val current = modes.current == index
         val fallback = modes.modes.firstOrNull { it.index == QUIET }
         val favourites = modes.favourites?.takeIf { index in it.slots }?.let { it.copy(slots = it.slots - index) }
@@ -592,37 +561,43 @@ class HeadphoneRepository(
             current = if (current) QUIET else modes.current,
             favourites = favourites ?: modes.favourites,
         )
-        changeModes(optimistic, if (current) fallback?.let(::audioOf) else null, "Couldn't delete the mode") { h ->
-            if (current) h.selectMode(QUIET)
-            if (favourites != null) h.write(QcUltra2.Write.favourites, favourites)
-            h.deleteMode(index)
+        changeModes(
+            optimistic,
+            if (current && _state.value.audio is Section.Loaded) fallback?.let(::audioOf) else null,
+            "Couldn't delete the mode",
+        ) { d ->
+            d.deleteMode(index, isCurrent = current, updatedFavourites = favourites)
         }
     }
 
-    /**
-     * Optimistic mode change: shows [optimistic] (and [audio], if the change switches mode), runs
-     * [work], then reloads modes and audio from a fresh drain whether it worked or not, since a
-     * failure can come after some writes landed. Polls are held off for the whole change.
-     */
-    private fun changeModes(optimistic: ModesSection, audio: AudioSettings?, failure: String, work: suspend (Headphones) -> Unit) {
-        val h = headphones ?: return message("Not connected")
+    private fun changeModes(
+        optimistic: ModesSection,
+        audio: AudioSettings?,
+        failure: String,
+        work: suspend (HeadphoneDriver) -> Unit,
+    ) {
+        val d = driver ?: return message("Not connected")
         val previous = _state.value
-        started(Key.Modes)
-        started(Key.Audio)
+        started(SectionKey.Modes)
+        started(SectionKey.Audio)
         _state.update { s -> s.copy(modes = Section.Loaded(optimistic), audio = audio?.let { Section.Loaded(it) } ?: s.audio) }
         launchInSession {
-            active(Key.Modes) {
-                active(Key.Audio) {
+            active(SectionKey.Modes) {
+                active(SectionKey.Audio) {
                     try {
-                        work(h)
-                    } catch (e: BmapException) {
-                        rollBack(previous, failure, e)
-                    } catch (e: ProfileError) {
+                        work(d)
+                    } catch (e: DriverException) {
                         rollBack(previous, failure, e)
                     }
                     try {
-                        applyModes(h, h.allModes())
-                    } catch (e: BmapException) {
+                        d.reloadModes { mutate ->
+                            _state.update { s ->
+                                val updated = mutate(s)
+                                updated.audio.valueOrNull()?.let { audioConfirmed = it }
+                                updated
+                            }
+                        }
+                    } catch (e: DriverException) {
                         log("modes reload failed: ${e.message}")
                     }
                 }
@@ -638,19 +613,19 @@ class HeadphoneRepository(
 
     private fun audioOf(mode: ModeConfig) = AudioSettings(mode.cnc, autoCnc = false, mode.spatial, mode.wind, mode.anc)
 
-    // Commands that drop the link. Wired for M3; exercised only in H1.
+    // Commands that drop the link.
 
     override fun powerOff() = command(Command.PowerOff) { it.powerOff() }
 
     override fun pairingMode() = command(Command.PairingMode) { it.pairingMode() }
 
-    private fun command(command: Command, send: suspend (Headphones) -> Unit) {
-        val h = headphones ?: return message("Not connected")
+    private fun command(command: Command, send: suspend (HeadphoneDriver) -> Unit) {
+        val d = driver ?: return message("Not connected")
         events.trySend(LinkEvent.CommandSent(command, clock()))
         launchInSession {
             try {
-                send(h)
-            } catch (e: BmapException) {
+                send(d)
+            } catch (e: DriverException) {
                 log("$command failed: ${e.message}")
                 message("The headphones didn't respond")
             }
@@ -664,11 +639,11 @@ class HeadphoneRepository(
         scope.launch(owner, block = block)
     }
 
-    private fun started(key: Key) {
+    private fun started(key: SectionKey) {
         writeStarts[key] = (writeStarts[key] ?: 0) + 1
     }
 
-    private inline fun active(key: Key, block: () -> Unit) {
+    private inline fun active(key: SectionKey, block: () -> Unit) {
         writesActive[key] = (writesActive[key] ?: 0) + 1
         try {
             block()

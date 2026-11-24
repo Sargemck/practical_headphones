@@ -54,6 +54,48 @@ object Parsers {
         return p.u(0).also { require(it in 0..100) { "battery $it out of range" } }
     }
 
+    /**
+     * Parses [2.2] battery payload for both headphones (1+ bytes, byte 0 = %) and earbuds
+     * (4 * N bytes: `[level, rsv, rsv, id]` where 1=Right, 2=Left, 3=Case, 4=Combined).
+     */
+    fun batteryStatus(p: ByteArray): BatteryStatus {
+        require(p.isNotEmpty()) { "empty" }
+        if (p.size >= 8 && p.size % 4 == 0) {
+            var right: Int? = null
+            var left: Int? = null
+            var casePct: Int? = null
+            var combined: Int? = null
+            for (i in p.indices step 4) {
+                val level = p.u(i)
+                val id = p.u(i + 3)
+                if (level !in 0..100) continue
+                when (id) {
+                    1 -> right = level
+                    2 -> left = level
+                    3 -> casePct = level
+                    4 -> combined = level
+                }
+            }
+            val components = buildList {
+                left?.let { add(BatteryComponent("L", it)) }
+                right?.let { add(BatteryComponent("R", it)) }
+                casePct?.let { add(BatteryComponent("Case", it)) }
+            }
+            val aggregate = combined
+                ?: listOfNotNull(left, right).minOrNull()
+                ?: casePct
+                ?: throw IllegalArgumentException("no valid battery component in ${p.size} bytes")
+            return BatteryStatus(percent = aggregate, components = components)
+        }
+        return BatteryStatus(percent = battery(p))
+    }
+
+    /** QC35 / QC35 II ANR [1.6]: `[level, capabilities?]`. */
+    fun anr(p: ByteArray): AnrMode {
+        require(p.isNotEmpty()) { "empty" }
+        return requireNotNull(AnrMode.fromCode(p.u(0))) { "unknown ANR level ${p.u(0)}" }
+    }
+
     /** Inferred from the M0 fixture (bosectl has no parser): `[header]` then 6-byte MACs. */
     fun pairedDevices(p: ByteArray): PairedDevices {
         require(p.isNotEmpty() && (p.size - 1) % 6 == 0) { "expected 1 + 6n bytes, got ${p.size}" }
@@ -130,6 +172,33 @@ object Parsers {
             anc = p.u(47) != 0,
         )
     }
+
+    /**
+     * 47-byte STATUS for QuietComfort Headphones 2023 ("prince") and QC45: identical to
+     * [modeConfig] up to byte 46 (`wind`), with no byte 47 (`anc` defaults to true).
+     */
+    fun modeConfig47(p: ByteArray): ModeConfig {
+        require(p.size >= 47) { "expected 47 bytes, got ${p.size}" }
+        val nameBytes = p.copyOfRange(6, 38)
+        val end = nameBytes.indexOf(0).let { if (it < 0) nameBytes.size else it }
+        return ModeConfig(
+            index = p.u(0),
+            promptB1 = p.u(1),
+            promptB2 = p.u(2),
+            editable = p.u(3) != 0,
+            configured = p.u(4) != 0,
+            name = nameBytes.copyOfRange(0, end).toString(Charsets.UTF_8),
+            cnc = p.u(42),
+            autoCnc = p.u(43) != 0,
+            spatial = spatial(p.u(44)),
+            wind = p.u(46) != 0,
+            anc = true,
+        )
+    }
+
+    /** Parses either 48-byte or 47-byte [31.6] STATUS frames. */
+    fun modeConfigAny(p: ByteArray): ModeConfig =
+        if (p.size == 47) modeConfig47(p) else modeConfig(p)
 
     private fun spatial(code: Int): Spatial = requireNotNull(Spatial.fromCode(code)) { "unknown spatial $code" }
 

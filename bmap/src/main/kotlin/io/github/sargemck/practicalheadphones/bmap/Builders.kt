@@ -16,6 +16,12 @@ object Builders {
         return bytes
     }
 
+    /** Alias for models (such as QC35) whose [1.2] SETGET takes raw UTF-8 with no flag byte. */
+    fun productNameRaw(name: String): ByteArray = productName(name)
+
+    /** QC35 / QC35 II ANR [1.6] SETGET payload: single byte `[mode.code]`. */
+    fun anr(mode: AnrMode): ByteArray = byteArrayOf(mode.code.toByte())
+
     fun eqBand(setting: EqBandSetting): ByteArray {
         require(setting.bandId in 0..2) { "band ${setting.bandId} out of range" }
         require(setting.value in -10..10) { "EQ value ${setting.value} out of range" }
@@ -64,6 +70,9 @@ object Builders {
         out[39] = if (write.anc) 1 else 0
         return out
     }
+
+    /** 39 bytes for QuietComfort 2023 ("prince") and QC45: same as [modeConfig] without the trailing anc byte. */
+    fun modeConfig39(write: ModeConfigWrite): ByteArray = modeConfig(write).copyOf(39)
 
     /** START 31.3 `[idx, 0]`: switch mode without a voice prompt. */
     fun selectMode(index: Int): ByteArray {

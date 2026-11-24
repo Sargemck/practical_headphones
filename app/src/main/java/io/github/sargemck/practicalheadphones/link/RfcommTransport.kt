@@ -2,12 +2,19 @@ package io.github.sargemck.practicalheadphones.link
 
 import android.bluetooth.BluetoothSocket
 import io.github.sargemck.practicalheadphones.bmap.FrameTransport
+import io.github.sargemck.practicalheadphones.samsung.SamsungTransport
+import io.github.sargemck.practicalheadphones.sony.SonyTransport
+import io.github.sargemck.practicalheadphones.soundcore.SoundcoreTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** A connected RFCOMM socket as a [FrameTransport]. `read() == -1` becomes null (link closed). */
-class RfcommTransport(private val socket: BluetoothSocket) : FrameTransport {
-    private val buffer = ByteArray(512)
+/** A connected RFCOMM socket adapting to all four pure-JVM protocol transport interfaces. */
+class RfcommTransport(private val socket: BluetoothSocket) :
+    FrameTransport,
+    SonyTransport,
+    SoundcoreTransport,
+    SamsungTransport {
+    private val buffer = ByteArray(1024)
 
     override suspend fun read(): ByteArray? = withContext(Dispatchers.IO) {
         val n = socket.inputStream.read(buffer)

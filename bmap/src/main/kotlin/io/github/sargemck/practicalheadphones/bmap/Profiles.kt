@@ -35,9 +35,12 @@ object Profiles {
      * treats it as unreliable. (Fw 10.12.12 sets it on a write and clears it when the name is
      * set back to `None`, M4 device run.)
      */
-    fun findFreeSlot(modes: Collection<ModeConfig>): Int? {
+    fun findFreeSlot(
+        modes: Collection<ModeConfig>,
+        editableSlots: IntRange = QcUltra2.editableSlots,
+    ): Int? {
         val byIndex = modes.associateBy { it.index }
-        return QcUltra2.editableSlots.firstOrNull { slot ->
+        return editableSlots.firstOrNull { slot ->
             val mode = byIndex[slot]
             mode == null || mode.name.isBlank() || mode.name.trim().equals(FREE_NAME, ignoreCase = true)
         }
@@ -54,18 +57,28 @@ object Profiles {
      * trimmed name, which is what [create] and [update] write. A name another configured mode
      * already has is refused too (not in bosectl), except the mode in slot [except] (a rename).
      */
-    fun validateName(name: String, modes: Collection<ModeConfig>, except: Int? = null) {
-        nameProblem(name, modes, except)?.let { throw ProfileError.InvalidName(name, it) }
+    fun validateName(
+        name: String,
+        modes: Collection<ModeConfig>,
+        except: Int? = null,
+        presetNames: List<String> = QcUltra2.presetNames,
+    ) {
+        nameProblem(name, modes, except, presetNames)?.let { throw ProfileError.InvalidName(name, it) }
     }
 
     /** What [validateName] would refuse [name] for, or null if it's fine. */
-    fun nameProblem(name: String, modes: Collection<ModeConfig>, except: Int? = null): NameProblem? {
+    fun nameProblem(
+        name: String,
+        modes: Collection<ModeConfig>,
+        except: Int? = null,
+        presetNames: List<String> = QcUltra2.presetNames,
+    ): NameProblem? {
         val trimmed = name.trim()
         return when {
             trimmed.isEmpty() -> NameProblem.Blank
             trimmed.toByteArray(Charsets.UTF_8).size > Builders.MAX_NAME_BYTES -> NameProblem.TooLong
             trimmed.equals(FREE_NAME, ignoreCase = true) -> NameProblem.Reserved
-            (QcUltra2.presetNames + modes.filter { !it.editable }.map { it.name.trim() })
+            (presetNames + modes.filter { !it.editable }.map { it.name.trim() })
                 .any { it.equals(trimmed, ignoreCase = true) } -> NameProblem.Preset
             modes.any { it.index != except && isConfigured(it) && it.name.trim().equals(trimmed, ignoreCase = true) } ->
                 NameProblem.Duplicate
@@ -77,9 +90,15 @@ object Profiles {
     fun isConfigured(mode: ModeConfig): Boolean =
         mode.name.isNotBlank() && !mode.name.trim().equals(FREE_NAME, ignoreCase = true)
 
-    fun create(modes: Collection<ModeConfig>, name: String, settings: ProfileSettings): ModeConfigWrite {
-        validateName(name, modes)
-        val slot = findFreeSlot(modes) ?: throw ProfileError.NoFreeSlot()
+    fun create(
+        modes: Collection<ModeConfig>,
+        name: String,
+        settings: ProfileSettings,
+        editableSlots: IntRange = QcUltra2.editableSlots,
+        presetNames: List<String> = QcUltra2.presetNames,
+    ): ModeConfigWrite {
+        validateName(name, modes, presetNames = presetNames)
+        val slot = findFreeSlot(modes, editableSlots) ?: throw ProfileError.NoFreeSlot()
         return ModeConfigWrite(
             index = slot,
             promptB1 = 0,
@@ -98,7 +117,9 @@ object Profiles {
         name: String,
         rename: String? = null,
         settings: ProfileSettings? = null,
-    ): ModeConfigWrite = update(modes, editable(name, modes), rename, settings)
+        presetSlots: IntRange = QcUltra2.presetSlots,
+        presetNames: List<String> = QcUltra2.presetNames,
+    ): ModeConfigWrite = update(modes, editable(name, modes, presetSlots), rename, settings, presetNames)
 
     /** [update] for the mode in slot [index]. */
     fun update(
@@ -106,11 +127,19 @@ object Profiles {
         index: Int,
         rename: String? = null,
         settings: ProfileSettings? = null,
-    ): ModeConfigWrite = update(modes, editable(index, modes), rename, settings)
+        presetSlots: IntRange = QcUltra2.presetSlots,
+        presetNames: List<String> = QcUltra2.presetNames,
+    ): ModeConfigWrite = update(modes, editable(index, modes, presetSlots), rename, settings, presetNames)
 
-    private fun update(modes: Collection<ModeConfig>, mode: ModeConfig, rename: String?, settings: ProfileSettings?): ModeConfigWrite {
+    private fun update(
+        modes: Collection<ModeConfig>,
+        mode: ModeConfig,
+        rename: String?,
+        settings: ProfileSettings?,
+        presetNames: List<String>,
+    ): ModeConfigWrite {
         if (rename != null && !rename.trim().equals(mode.name.trim(), ignoreCase = true)) {
-            validateName(rename, modes, except = mode.index)
+            validateName(rename, modes, except = mode.index, presetNames = presetNames)
         }
         return ModeConfigWrite(
             index = mode.index,
@@ -129,10 +158,18 @@ object Profiles {
      * empty slot (cnc 10, spatial off, wind off, noise cancelling on; M4 device run), not
      * bosectl's zeros, so a deleted slot reads like one that was never used.
      */
-    fun delete(modes: Collection<ModeConfig>, name: String): ModeConfigWrite = cleared(editable(name, modes).index)
+    fun delete(
+        modes: Collection<ModeConfig>,
+        name: String,
+        presetSlots: IntRange = QcUltra2.presetSlots,
+    ): ModeConfigWrite = cleared(editable(name, modes, presetSlots).index)
 
     /** [delete] for the mode in slot [index]. */
-    fun delete(modes: Collection<ModeConfig>, index: Int): ModeConfigWrite = cleared(editable(index, modes).index)
+    fun delete(
+        modes: Collection<ModeConfig>,
+        index: Int,
+        presetSlots: IntRange = QcUltra2.presetSlots,
+    ): ModeConfigWrite = cleared(editable(index, modes, presetSlots).index)
 
     private fun cleared(index: Int) = ModeConfigWrite(
         index = index,
@@ -145,14 +182,14 @@ object Profiles {
         anc = true,
     )
 
-    private fun editable(name: String, modes: Collection<ModeConfig>): ModeConfig =
-        locked(findProfile(name, modes) ?: throw ProfileError.NotFound(name))
+    private fun editable(name: String, modes: Collection<ModeConfig>, presetSlots: IntRange): ModeConfig =
+        locked(findProfile(name, modes) ?: throw ProfileError.NotFound(name), presetSlots)
 
-    private fun editable(index: Int, modes: Collection<ModeConfig>): ModeConfig =
-        locked(modes.firstOrNull { it.index == index && isConfigured(it) } ?: throw ProfileError.NotFound("slot $index"))
+    private fun editable(index: Int, modes: Collection<ModeConfig>, presetSlots: IntRange): ModeConfig =
+        locked(modes.firstOrNull { it.index == index && isConfigured(it) } ?: throw ProfileError.NotFound("slot $index"), presetSlots)
 
-    private fun locked(mode: ModeConfig): ModeConfig {
-        if (!mode.editable || mode.index in QcUltra2.presetSlots) throw ProfileError.PresetLocked(mode.index)
+    private fun locked(mode: ModeConfig, presetSlots: IntRange): ModeConfig {
+        if (!mode.editable || mode.index in presetSlots) throw ProfileError.PresetLocked(mode.index)
         return mode
     }
 }

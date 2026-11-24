@@ -24,8 +24,8 @@ class LastKnownCodecTest {
     @Test
     fun `unknown versions and broken files read back as null`() {
         assertNull(LastKnownCodec.decode(""))
-        assertNull(LastKnownCodec.decode("v=2\nname=x\n"))
-        assertNull(LastKnownCodec.decode("v=1\naudio=not|numbers\n"))
+        assertNull(LastKnownCodec.decode("v=99\nname=x\n"))
+        assertNull(LastKnownCodec.decode("v=2\naudio=not|numbers\n"))
     }
 
     @Test

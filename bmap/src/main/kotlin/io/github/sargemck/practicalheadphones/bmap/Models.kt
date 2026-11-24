@@ -122,3 +122,36 @@ data class ModesSnapshot(
     val favourites: Favourites?,
     val audioSettings: AudioSettings?,
 )
+
+/** QC35 / QC35 II noise cancelling level [1.6]. */
+enum class AnrMode(val code: Int) {
+    OFF(0),
+    HIGH(1),
+    WIND(2),
+    LOW(3);
+
+    companion object {
+        fun fromCode(code: Int): AnrMode? = entries.firstOrNull { it.code == code }
+    }
+}
+
+/** One component of a multi-part battery response (e.g. Left, Right, Case on earbuds). */
+data class BatteryComponent(val label: String, val percent: Int)
+
+/** Single-battery or multi-component battery status from [2.2]. */
+data class BatteryStatus(val percent: Int, val components: List<BatteryComponent> = emptyList())
+
+/** Wire layout of block 31 mode configs [31.6] on a Bose model. */
+enum class ModeLayout {
+    /** 48-byte STATUS / 40-byte SETGET with anc byte (QC Ultra 2, QC Ultra Earbuds 2). */
+    V48_40,
+
+    /** 47-byte STATUS / 39-byte SETGET without anc byte (QuietComfort 2023 "prince", QC45). */
+    V47_39,
+
+    /** 48-byte STATUS read-only, mode switching only (Ultra Open Earbuds). */
+    READ_ONLY_48,
+
+    /** No block 31 modes; uses ANR [1.6] (QC35 / QC35 II). */
+    NONE,
+}

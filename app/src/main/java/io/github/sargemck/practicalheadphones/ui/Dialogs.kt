@@ -15,7 +15,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 
-enum class DeviceDialog { Rename, Pairing, PowerOff }
+import io.github.sargemck.practicalheadphones.state.PairedHeadphoneChoice
+
+enum class DeviceDialog { Rename, Pairing, PowerOff, SwitchDevice }
 
 @Composable
 fun RenameDialog(current: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
@@ -68,7 +70,13 @@ fun ConfirmDialog(title: String, text: String?, confirm: String, tag: String, on
 private fun Modifier.dialogTag(tag: String) = semantics { testTagsAsResourceId = true }.testTag(tag)
 
 @Composable
-fun DeviceDialogs(dialog: DeviceDialog?, name: String?, actions: Actions, close: () -> Unit) {
+fun DeviceDialogs(
+    dialog: DeviceDialog?,
+    name: String?,
+    actions: Actions,
+    availableDevices: List<PairedHeadphoneChoice> = emptyList(),
+    close: () -> Unit,
+) {
     when (dialog) {
         DeviceDialog.Rename -> RenameDialog(
             current = name.orEmpty(),
@@ -90,6 +98,30 @@ fun DeviceDialogs(dialog: DeviceDialog?, name: String?, actions: Actions, close:
             tag = "power-off",
             onConfirm = { actions.powerOff(); close() },
             onDismiss = close,
+        )
+        DeviceDialog.SwitchDevice -> AlertDialog(
+            onDismissRequest = close,
+            title = { Text("Switch headphones") },
+            text = {
+                Column {
+                    for (device in availableDevices) {
+                        RadioRow(
+                            title = device.name,
+                            description = device.brand,
+                            selected = device.selected,
+                            tag = "switch-device-${device.address}",
+                            onClick = {
+                                actions.selectDevice(device.address)
+                                close()
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = close, modifier = Modifier.testTag("dialog-cancel")) { Text("Close") }
+            },
+            modifier = Modifier.dialogTag("switch-device-dialog"),
         )
         null -> Unit
     }

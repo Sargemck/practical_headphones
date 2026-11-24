@@ -14,8 +14,11 @@
         android:required="false" />
 
     <queries>
-        <!-- Only to warn that the Bose app can take the connection. -->
+        <!-- Only to warn that an official companion app can take the connection. -->
         <package android:name="com.bose.bosemusic" />
+        <package android:name="com.sony.songpal.mdr" />
+        <package android:name="com.oceanwing.soundcore" />
+        <package android:name="com.samsung.accessory.atticmgr" />
     </queries>
 
     <application

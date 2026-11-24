@@ -29,6 +29,14 @@ Not affiliated with Bose. Bose and QuietComfort are trademarks of Bose Corporati
 
 Download the APK from [GitHub Releases](https://github.com/Sargemck/practical_headphones/releases). F-Droid is planned.
 
+## Supported Headphones
+
+- **Bose (Verified):** QuietComfort Ultra Headphones (2nd Gen) — tested on firmware 10.12.12.
+- **Bose (Experimental):** QC Ultra Earbuds 2, QuietComfort Headphones (2023), QC45, QC35 / QC35 II, Ultra Open Earbuds.
+- **Sony (Experimental):** WH-1000XM3, WH-1000XM4, WH-1000XM5, WH-1000XM6, WF-1000XM4, WF-1000XM5 (MDR v1/v2).
+- **Anker Soundcore (Experimental):** Life Q30, Life Q35, Space Q45, Space One, Space 2, Liberty 4 / 4 NC.
+- **Samsung (Experimental):** Galaxy Buds2, Buds2 Pro, Buds FE, Buds Live, Buds Pro.
+
 ## Requirements
 
 - Android 12 or newer. Auto-connect needs Android 16 or newer.

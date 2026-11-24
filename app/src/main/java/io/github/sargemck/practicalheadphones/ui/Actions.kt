@@ -31,6 +31,12 @@ data class Actions(
     val openAppSettings: () -> Unit = {},
     val addTile: () -> Unit = {},
     val setUpAutoConnect: () -> Unit = {},
+    val setDiscreteAnc: (String) -> Unit = {},
+    val setAmbientLevel: (Int) -> Unit = {},
+    val setFocusOnVoice: (Boolean) -> Unit = {},
+    val setSpeakToChat: (Boolean) -> Unit = {},
+    val setEqPreset: (String) -> Unit = {},
+    val selectDevice: (String) -> Unit = {},
 ) {
     companion object {
         /** Headphone actions from [controller]; the Android ones come from the activity. */
@@ -51,6 +57,12 @@ data class Actions(
             deleteMode = controller::deleteMode,
             powerOff = controller::powerOff,
             pairingMode = controller::pairingMode,
+            setDiscreteAnc = controller::setDiscreteAnc,
+            setAmbientLevel = controller::setAmbientLevel,
+            setFocusOnVoice = controller::setFocusOnVoice,
+            setSpeakToChat = controller::setSpeakToChat,
+            setEqPreset = controller::setEqPreset,
+            selectDevice = controller::selectDevice,
         )
     }
 }

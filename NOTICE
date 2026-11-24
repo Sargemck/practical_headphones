@@ -1,14 +1,21 @@
 Practical Headphones
 Copyright (c) 2026 Sargemck. MIT License, see LICENSE.
 
-Not affiliated with Bose. Bose and QuietComfort are trademarks of Bose Corporation.
+Not affiliated with Bose, Sony, Anker/Soundcore, or Samsung. Bose and QuietComfort are trademarks of Bose Corporation. Sony is a trademark of Sony Group Corporation. Soundcore is a trademark of Anker Innovations Limited. Samsung and Galaxy Buds are trademarks of Samsung Electronics Co., Ltd.
 
-Protocol knowledge and ported logic come from bosectl:
-https://github.com/aaronsb/bosectl
+Protocol knowledge and ported logic come from:
 
-MIT License
+1. bosectl (https://github.com/aaronsb/bosectl)
+MIT License — Copyright (c) 2026 Aaron Bockelie
 
-Copyright (c) 2026 Aaron Bockelie
+2. SonyHeadphonesClient (https://github.com/Plutoberth/SonyHeadphonesClient)
+MIT License — Copyright (c) 2020 Nir Harel, Mor Gal, Sem Visscher, jimzrt, guilhermealbm, and other contributors
+
+3. soundcorebridge (https://github.com/mervin008/soundcorebridge)
+MIT License — Copyright (c) 2026 Mervin
+
+4. omarchy-headphones (https://github.com/ncr/omarchy-headphones)
+MIT License — Copyright (c) 2026 Jacek Becela
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 

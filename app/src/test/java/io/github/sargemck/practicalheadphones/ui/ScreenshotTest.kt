@@ -173,6 +173,60 @@ class ScreenshotTest(private val variant: Variant) {
     @Test
     fun powerOffDialog() = dialog(DeviceDialog.PowerOff, "power-off")
 
+    @Test
+    fun multiBrandSonyAndEarbuds() {
+        val sonyState = io.github.sargemck.practicalheadphones.state.HeadphoneState(
+            link = LinkState.Connected,
+            name = io.github.sargemck.practicalheadphones.state.Section.Loaded("WH-1000XM5"),
+            firmware = io.github.sargemck.practicalheadphones.state.Section.Unsupported,
+            battery = io.github.sargemck.practicalheadphones.state.Section.Loaded(82),
+            modes = io.github.sargemck.practicalheadphones.state.Section.Unsupported,
+            audio = io.github.sargemck.practicalheadphones.state.Section.Unsupported,
+            discreteAnc = io.github.sargemck.practicalheadphones.state.Section.Loaded(
+                io.github.sargemck.practicalheadphones.state.DiscreteAncState(
+                    options = listOf(
+                        io.github.sargemck.practicalheadphones.state.DiscreteAncOption("ANC", "Noise cancelling"),
+                        io.github.sargemck.practicalheadphones.state.DiscreteAncOption("AMBIENT", "Ambient sound", "Lets outside sound through."),
+                        io.github.sargemck.practicalheadphones.state.DiscreteAncOption("OFF", "Off"),
+                    ),
+                    selectedId = "AMBIENT",
+                    ambientLevel = 14,
+                    ambientMax = 20,
+                    focusOnVoice = true,
+                ),
+            ),
+            eq = io.github.sargemck.practicalheadphones.state.Section.Loaded(
+                List(6) { i -> io.github.sargemck.practicalheadphones.bmap.EqBand(i, -10, 10, if (i == 5) 4 else 0) },
+            ),
+            eqPresets = io.github.sargemck.practicalheadphones.driver.SonyDriver.SONY_PRESETS.take(4),
+            eqBandLabels = io.github.sargemck.practicalheadphones.sony.SonyProtocol.EQ_BAND_LABELS,
+            selfVoice = io.github.sargemck.practicalheadphones.state.Section.Unsupported,
+            speakToChat = io.github.sargemck.practicalheadphones.state.Section.Loaded(true),
+            autoPlayPause = io.github.sargemck.practicalheadphones.state.Section.Unsupported,
+            autoAnswer = io.github.sargemck.practicalheadphones.state.Section.Unsupported,
+            multipoint = io.github.sargemck.practicalheadphones.state.Section.Unsupported,
+            deviceBadge = io.github.sargemck.practicalheadphones.state.DeviceBadge("Sony", "WH-1000XM5", experimental = true),
+            batteryParts = listOf(
+                io.github.sargemck.practicalheadphones.state.BatteryPart("L", 85),
+                io.github.sargemck.practicalheadphones.state.BatteryPart("R", 80),
+                io.github.sargemck.practicalheadphones.state.BatteryPart("Case", 90),
+            ),
+            availableDevices = listOf(
+                io.github.sargemck.practicalheadphones.state.PairedHeadphoneChoice("01", "WH-1000XM5", "Sony", selected = true),
+                io.github.sargemck.practicalheadphones.state.PairedHeadphoneChoice("02", "Bose QC Ultra", "Bose", selected = false),
+            ),
+            capabilities = io.github.sargemck.practicalheadphones.state.Capabilities(
+                canRename = false,
+                canPair = false,
+                canPowerOff = true,
+                canEditModes = false,
+            ),
+        )
+        compose.setContent { UiFrame(variant) { HeadphonesApp(sonyState, actions, "0.0.1") } }
+        settle()
+        compose.onNodeWithTag("main-list").captureRoboImage(path("multi-brand-sony"))
+    }
+
     private fun dialog(dialog: DeviceDialog, name: String) {
         compose.setContent { UiFrame(variant) { HeadphonesApp(Samples.connected, actions, "0.0.1", initialDialog = dialog) } }
         settle()

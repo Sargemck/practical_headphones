@@ -14,11 +14,12 @@ import io.github.sargemck.practicalheadphones.AppGraph
 import io.github.sargemck.practicalheadphones.BuildConfig
 import io.github.sargemck.practicalheadphones.MainActivity
 import io.github.sargemck.practicalheadphones.R
+import android.bluetooth.BluetoothManager
 import io.github.sargemck.practicalheadphones.link.AutoConnect
 import io.github.sargemck.practicalheadphones.link.BmapLog
 import io.github.sargemck.practicalheadphones.link.BoseAppDetector
 import io.github.sargemck.practicalheadphones.link.HeadphonesLocator
-import io.github.sargemck.practicalheadphones.link.RfcommConnector
+import io.github.sargemck.practicalheadphones.link.MultiBrandConnector
 import io.github.sargemck.practicalheadphones.link.ScreenMonitor
 import io.github.sargemck.practicalheadphones.link.SystemLinkMonitor
 import io.github.sargemck.practicalheadphones.state.FileLastKnownStore
@@ -57,17 +58,36 @@ class HeadphoneService : Service() {
         startForeground(NOTIFICATION_ID, build(NotificationModel("Headphones", "Starting…", emptyList())), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
 
         val locator = HeadphonesLocator(this)
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        fun refreshDevicesAndCompanion() {
+            val devices = adapter?.let { runCatching { locator.listAll(it) }.getOrDefault(emptyList()) }.orEmpty()
+            repository.setAvailableDevices(devices)
+            val active = adapter?.let { runCatching { locator.find(it) }.getOrNull() }
+            val brand = active?.let { locator.brandOf(it) }
+            val (installed, appName) = BoseAppDetector.detectFor(this, brand)
+            repository.setBoseAppInstalled(installed, appName)
+        }
         repository = HeadphoneRepository(
             scope = scope,
-            connector = RfcommConnector(this, locator, BmapLog.frames, BmapLog::d),
+            driverConnector = MultiBrandConnector(this, locator, BmapLog.frames, BmapLog::d),
             clock = SystemClock::elapsedRealtime,
             log = BmapLog::d,
             // No-backup dir: the snapshot (including the headphones' name) never leaves the phone.
             lastKnownStore = FileLastKnownStore(File(noBackupFilesDir, "last-known.txt"), BmapLog::d),
+            onSelectDevice = { address ->
+                locator.selectAddress(address)
+                refreshDevicesAndCompanion()
+                systemLink.stop()
+                systemLink.start()
+                repository.reconnect()
+            },
         )
-        repository.setBoseAppInstalled(BoseAppDetector.isInstalled(this))
+        refreshDevicesAndCompanion()
         AppGraph.controller.value = repository
-        systemLink = SystemLinkMonitor(this, locator, repository::onSystemLink, BmapLog::d).also { it.start() }
+        systemLink = SystemLinkMonitor(this, locator, { link ->
+            refreshDevicesAndCompanion()
+            repository.onSystemLink(link)
+        }, BmapLog::d).also { it.start() }
         screen = ScreenMonitor(this, repository::onScreen).also { it.start() }
 
         scope.launch { uiVisible.collect(repository::onUiVisible) }

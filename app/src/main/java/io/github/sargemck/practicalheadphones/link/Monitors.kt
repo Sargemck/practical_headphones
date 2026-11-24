@@ -47,12 +47,24 @@ fun Context.registerSystemReceiver(receiver: BroadcastReceiver, filter: IntentFi
 
 object BoseAppDetector {
     const val PACKAGE = "com.bose.bosemusic"
+    private val BRAND_APPS = mapOf(
+        HeadphoneBrand.BOSE to (PACKAGE to "Bose"),
+        HeadphoneBrand.SONY to ("com.sony.songpal.mdr" to "Sound Connect"),
+        HeadphoneBrand.SOUNDCORE to ("com.oceanwing.soundcore" to "Soundcore"),
+        HeadphoneBrand.SAMSUNG to ("com.samsung.accessory.atticmgr" to "Galaxy Wearable"),
+    )
 
     /** Needs the `<queries>` entry in the manifest. */
-    fun isInstalled(context: Context): Boolean = try {
-        context.packageManager.getPackageInfo(PACKAGE, 0)
+    fun isInstalled(context: Context, packageName: String = PACKAGE): Boolean = try {
+        context.packageManager.getPackageInfo(packageName, 0)
         true
     } catch (e: PackageManager.NameNotFoundException) {
         false
+    }
+
+    /** Returns `(installed, appDisplayName)` for the companion app of [brand]. */
+    fun detectFor(context: Context, brand: HeadphoneBrand?): Pair<Boolean, String?> {
+        val (pkg, name) = BRAND_APPS[brand ?: HeadphoneBrand.BOSE] ?: (PACKAGE to "Bose")
+        return isInstalled(context, pkg) to (if (pkg == PACKAGE) null else name)
     }
 }

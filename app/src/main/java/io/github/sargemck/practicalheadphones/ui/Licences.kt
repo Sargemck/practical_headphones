@@ -20,14 +20,21 @@ $MIT_TERMS
     val NOTICE = """Practical Headphones
 Copyright (c) 2026 Sargemck. MIT License, see LICENSE.
 
-Not affiliated with Bose. Bose and QuietComfort are trademarks of Bose Corporation.
+Not affiliated with Bose, Sony, Anker/Soundcore, or Samsung. Bose and QuietComfort are trademarks of Bose Corporation. Sony is a trademark of Sony Group Corporation. Soundcore is a trademark of Anker Innovations Limited. Samsung and Galaxy Buds are trademarks of Samsung Electronics Co., Ltd.
 
-Protocol knowledge and ported logic come from bosectl:
-$BOSECTL_URL
+Protocol knowledge and ported logic come from:
 
-MIT License
+1. bosectl ($BOSECTL_URL)
+MIT License — Copyright (c) 2026 Aaron Bockelie
 
-Copyright (c) 2026 Aaron Bockelie
+2. SonyHeadphonesClient (https://github.com/Plutoberth/SonyHeadphonesClient)
+MIT License — Copyright (c) 2020 Nir Harel, Mor Gal, Sem Visscher, jimzrt, guilhermealbm, and other contributors
+
+3. soundcorebridge (https://github.com/mervin008/soundcorebridge)
+MIT License — Copyright (c) 2026 Mervin
+
+4. omarchy-headphones (https://github.com/ncr/omarchy-headphones)
+MIT License — Copyright (c) 2026 Jacek Becela
 
 $MIT_TERMS
 

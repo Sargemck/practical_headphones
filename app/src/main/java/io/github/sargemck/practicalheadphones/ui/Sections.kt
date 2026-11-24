@@ -93,11 +93,17 @@ fun linkStatus(link: LinkState): LinkStatus = when (link) {
 
 /** Always at the top: which headphones, whether they're connected, battery, and what to do if not. */
 @Composable
-fun HeroCard(state: HeadphoneState, actions: Actions, bluetooth: Permission = Permission.Granted) {
+fun HeroCard(
+    state: HeadphoneState,
+    actions: Actions,
+    bluetooth: Permission = Permission.Granted,
+    onSwitchDevice: () -> Unit = {},
+) {
     val live = state.link == LinkState.Connected
     val status = permissionStatus(bluetooth) ?: linkStatus(state.link)
     val name = state.name.valueOrNull() ?: state.lastKnown?.name?.valueOrNull() ?: "QC Ultra headphones"
     val mode = state.modes.valueOrNull()?.currentMode?.name
+        ?: state.discreteAnc.valueOrNull()?.let { anc -> anc.options.firstOrNull { it.id == anc.selectedId }?.label }
     val colors = if (live) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else CardDefaults.cardColors()
     Card(Modifier.fillMaxWidth().testTag("hero"), colors = colors) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -126,6 +132,22 @@ fun HeroCard(state: HeadphoneState, actions: Actions, bluetooth: Permission = Pe
                         )
                         if (live) Battery(state.battery)
                     }
+                    if (live && state.batteryParts.isNotEmpty()) {
+                        Text(
+                            state.batteryParts.joinToString(" · ") { "${it.label} ${it.percent}%" },
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag("header-battery-parts"),
+                        )
+                    }
+                    val badge = state.deviceBadge
+                    if (live && badge != null && badge.experimental) {
+                        Text(
+                            "Experimental support · ${badge.brand} ${badge.model}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("experimental-badge"),
+                        )
+                    }
                 }
             }
             if (!live) {
@@ -138,6 +160,11 @@ fun HeroCard(state: HeadphoneState, actions: Actions, bluetooth: Permission = Pe
                         LinkStatus.Action.OpenAppSettings -> actions.openAppSettings
                     }
                     FilledTonalButton(onClick = onClick, modifier = Modifier.testTag(action.tag)) { Text(action.label) }
+                }
+            }
+            if (state.availableDevices.size > 1) {
+                FilledTonalButton(onClick = onSwitchDevice, modifier = Modifier.testTag("switch-headphones")) {
+                    Text("Switch headphones")
                 }
             }
             if (state.link == LinkState.Connecting) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -216,7 +243,7 @@ fun ModesCard(state: HeadphoneState, actions: Actions, edit: (Int?) -> Unit = {}
             ModeTiles(quickModes(modes), modes.current, actions)
             NavRow(null, "All modes", null, "all-modes") { sheetOpen = true }
             if (sheetOpen) {
-                AllModesSheet(modes, actions, close = { sheetOpen = false }) { slot ->
+                AllModesSheet(modes, state.capabilities, actions, close = { sheetOpen = false }) { slot ->
                     sheetOpen = false
                     edit(slot)
                 }
@@ -263,7 +290,13 @@ private fun ModeTile(mode: ModeConfig, selected: Boolean, actions: Actions, modi
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
-private fun AllModesSheet(modes: ModesSection, actions: Actions, close: () -> Unit, edit: (Int?) -> Unit) {
+private fun AllModesSheet(
+    modes: ModesSection,
+    capabilities: io.github.sargemck.practicalheadphones.state.Capabilities,
+    actions: Actions,
+    close: () -> Unit,
+    edit: (Int?) -> Unit,
+) {
     // Fully open: the list is long and New mode sits at the bottom.
     ModalBottomSheet(
         onDismissRequest = close,
@@ -276,7 +309,7 @@ private fun AllModesSheet(modes: ModesSection, actions: Actions, close: () -> Un
             Description("Starred modes are the ones the headphones' button cycles through. Bose presets can't be edited.", Pad.padding(top = 4.dp, bottom = 8.dp))
             for (mode in modes.modes) {
                 val favourite = modes.favourites?.let { mode.index in it.slots }
-                val custom = mode.index !in QcUltra2.presetSlots
+                val custom = capabilities.canEditModes && mode.index !in capabilities.presetSlots
                 RadioRow(
                     title = mode.name,
                     description = null,
@@ -310,13 +343,15 @@ private fun AllModesSheet(modes: ModesSection, actions: Actions, close: () -> Un
                     },
                 )
             }
-            if (Profiles.findFreeSlot(modes.modes) != null) {
-                NavRow(R.drawable.ic_add, "New mode", null, "new-mode") { edit(null) }
-            } else {
-                Description(
-                    "All ${QcUltra2.editableSlots.count()} custom modes are in use. Delete one to add another.",
-                    Pad.padding(top = 8.dp).testTag("modes-full"),
-                )
+            if (capabilities.canEditModes) {
+                if (Profiles.findFreeSlot(modes.modes, capabilities.editableSlots) != null) {
+                    NavRow(R.drawable.ic_add, "New mode", null, "new-mode") { edit(null) }
+                } else {
+                    Description(
+                        "All ${capabilities.editableSlots.count()} custom modes are in use. Delete one to add another.",
+                        Pad.padding(top = 8.dp).testTag("modes-full"),
+                    )
+                }
             }
             if (LocalPhoneFeatures.current.canAddTile) {
                 NavRow(R.drawable.ic_add, "Add to Quick Settings", "Switch to the next starred mode from Quick Settings.", "add-tile", actions.addTile)
@@ -370,6 +405,52 @@ fun NoiseSlider(cnc: Int, tag: String, onChange: (cnc: Int) -> Unit) {
     }
 }
 
+@Composable
+fun DiscreteNoiseCard(state: HeadphoneState, actions: Actions) {
+    if (state.discreteAnc == Section.Unsupported) return
+    SettingsCard("Noise control", "card-discrete-noise") {
+        SectionContent(state.discreteAnc, "Noise control", "discrete-anc", actions.retry) { anc ->
+            ChoiceChips(
+                anc.options.map { it.label to it.id },
+                anc.selectedId,
+                "anc",
+                actions.setDiscreteAnc,
+            )
+            anc.options.firstOrNull { it.id == anc.selectedId }?.description?.let { Description(it, Pad) }
+            val ambient = anc.ambientLevel
+            if (ambient != null) {
+                val live = LocalLive.current
+                var dragging by remember(ambient) { mutableStateOf<Float?>(null) }
+                val shown = dragging?.roundToInt() ?: ambient
+                Column(Pad) {
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("Ambient sound", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                        Text("$shown / ${anc.ambientMax}", style = MaterialTheme.typography.bodyLarge)
+                    }
+                    Slider(
+                        value = dragging ?: ambient.toFloat(),
+                        onValueChange = { if (live) dragging = it },
+                        onValueChangeFinished = {
+                            val wanted = dragging?.roundToInt()
+                            dragging = null
+                            if (wanted != null && wanted != ambient) actions.setAmbientLevel(wanted)
+                        },
+                        valueRange = 0f..anc.ambientMax.toFloat(),
+                        steps = (anc.ambientMax - 1).coerceAtLeast(0),
+                        modifier = Modifier.fillMaxWidth().offline(live).testTag("ambient-slider").semantics {
+                            contentDescription = "Ambient sound"
+                            stateDescription = "$shown of ${anc.ambientMax}"
+                        },
+                    )
+                }
+            }
+            anc.focusOnVoice?.let { focus ->
+                SwitchRow("Focus on voice", "Lets voices through while blocking background noise.", focus, "focus-on-voice", actions.setFocusOnVoice)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SoundCard(state: HeadphoneState, actions: Actions) {
@@ -377,40 +458,84 @@ fun SoundCard(state: HeadphoneState, actions: Actions) {
     SettingsCard("Equaliser", "card-sound") {
         SectionContent(state.eq, "Equaliser", "eq", actions.retry) { bands ->
             val live = LocalLive.current
-            val preset = EqPreset.match(bands)
-            var customOpen by rememberSaveable { mutableStateOf(false) }
-            val custom = preset == null || customOpen
-            FlowRow(Pad, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for (p in EqPreset.entries) {
+            val customPresets = state.eqPresets
+            if (customPresets != null) {
+                val sorted = bands.sortedBy { it.bandId }
+                val values = sorted.map { it.current }
+                val matched = customPresets.firstOrNull { it.values.isNotEmpty() && it.values == values }
+                var customOpen by rememberSaveable { mutableStateOf(false) }
+                val showSliders = sorted.isNotEmpty() && (matched == null || customOpen)
+                FlowRow(Pad, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (p in customPresets) {
+                        val selected = !customOpen && matched?.id == p.id
+                        FilterChip(
+                            selected = selected,
+                            onClick = {
+                                if (live) {
+                                    customOpen = false
+                                    actions.setEqPreset(p.id)
+                                }
+                            },
+                            label = { Text(p.label) },
+                            leadingIcon = if (selected) ({ ChipCheck() }) else null,
+                            modifier = Modifier.offline(live).testTag("eq-preset-${p.id.lowercase()}"),
+                        )
+                    }
+                    if (sorted.isNotEmpty()) {
+                        FilterChip(
+                            selected = showSliders,
+                            onClick = { if (live) customOpen = true },
+                            label = { Text("Custom") },
+                            leadingIcon = if (showSliders) ({ ChipCheck() }) else null,
+                            modifier = Modifier.offline(live).testTag("eq-custom"),
+                        )
+                    }
+                }
+                if (showSliders) {
+                    sorted.forEachIndexed { i, band ->
+                        EqSlider(band, actions, state.eqBandLabels?.getOrNull(i))
+                    }
+                }
+            } else {
+                val preset = EqPreset.match(bands)
+                var customOpen by rememberSaveable { mutableStateOf(false) }
+                val custom = preset == null || customOpen
+                FlowRow(Pad, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (p in EqPreset.entries) {
+                        FilterChip(
+                            selected = !custom && preset == p,
+                            onClick = {
+                                if (live) {
+                                    customOpen = false
+                                    actions.setEq(p.bass, p.mid, p.treble)
+                                }
+                            },
+                            label = { Text(p.label) },
+                            leadingIcon = if (!custom && preset == p) ({ ChipCheck() }) else null,
+                            modifier = Modifier.offline(live).testTag("eq-${p.name.lowercase()}"),
+                        )
+                    }
                     FilterChip(
-                        selected = !custom && preset == p,
-                        onClick = {
-                            if (live) {
-                                customOpen = false
-                                actions.setEq(p.bass, p.mid, p.treble)
-                            }
-                        },
-                        label = { Text(p.label) },
-                        leadingIcon = if (!custom && preset == p) ({ ChipCheck() }) else null,
-                        modifier = Modifier.offline(live).testTag("eq-${p.name.lowercase()}"),
+                        selected = custom,
+                        onClick = { if (live) customOpen = true },
+                        label = { Text("Custom") },
+                        leadingIcon = if (custom) ({ ChipCheck() }) else null,
+                        modifier = Modifier.offline(live).testTag("eq-custom"),
                     )
                 }
-                FilterChip(
-                    selected = custom,
-                    onClick = { if (live) customOpen = true },
-                    label = { Text("Custom") },
-                    leadingIcon = if (custom) ({ ChipCheck() }) else null,
-                    modifier = Modifier.offline(live).testTag("eq-custom"),
-                )
+                if (custom) {
+                    bands.sortedBy { it.bandId }.forEachIndexed { i, band ->
+                        EqSlider(band, actions, state.eqBandLabels?.getOrNull(i))
+                    }
+                }
             }
-            if (custom) for (band in bands.sortedBy { it.bandId }) EqSlider(band, actions)
         }
     }
 }
 
 @Composable
-private fun EqSlider(band: EqBand, actions: Actions) {
-    val name = when (band.bandId) {
+private fun EqSlider(band: EqBand, actions: Actions, customLabel: String? = null) {
+    val name = customLabel ?: when (band.bandId) {
         0 -> "Bass"
         1 -> "Mid"
         2 -> "Treble"
@@ -445,12 +570,15 @@ private fun EqSlider(band: EqBand, actions: Actions) {
 
 @Composable
 fun CallsCard(state: HeadphoneState, actions: Actions) {
-    if (state.selfVoice == Section.Unsupported && state.autoAnswer == Section.Unsupported) return
+    if (state.selfVoice == Section.Unsupported && state.autoAnswer == Section.Unsupported && state.speakToChat == Section.Unsupported) return
     SettingsCard("Calls", "card-calls") {
         SectionContent(state.selfVoice, "Self Voice", "self-voice", actions.retry) { selfVoice ->
             SubHeading("Self Voice")
             Description("How much of your own voice you hear on calls.", Pad)
             ChoiceChips(selfVoiceOptions, selfVoice.level, "self-voice", actions.setSelfVoice)
+        }
+        SectionContent(state.speakToChat, "Speak-to-Chat", "speak-to-chat", actions.retry) { on ->
+            SwitchRow("Speak-to-Chat", "Pauses music and lets outside sound in when you speak.", on, "speak-to-chat", actions.setSpeakToChat)
         }
         SectionContent(state.autoAnswer, "Auto answer", "auto-answer", actions.retry) { on ->
             SwitchRow("Auto answer", null, on, "auto-answer", actions.setAutoAnswer)
@@ -460,6 +588,10 @@ fun CallsCard(state: HeadphoneState, actions: Actions) {
 
 @Composable
 fun DeviceCard(state: HeadphoneState, actions: Actions, onRename: () -> Unit, onPairing: () -> Unit, onPowerOff: () -> Unit) {
+    val caps = state.capabilities
+    val live = LocalLive.current
+    val hasLiveActions = live && (caps.canRename || caps.canPair || caps.canPowerOff)
+    if (state.autoPlayPause == Section.Unsupported && state.multipoint == Section.Unsupported && !hasLiveActions) return
     SettingsCard("Headphones", "card-device") {
         SectionContent(state.autoPlayPause, "Auto play/pause", "auto-play-pause", actions.retry) { on ->
             SwitchRow(
@@ -477,22 +609,29 @@ fun DeviceCard(state: HeadphoneState, actions: Actions, onRename: () -> Unit, on
             }
         }
         // Actions on the headphones themselves only make sense while connected.
-        if (LocalLive.current) {
-            SectionContent(state.name, "Name", "name-row", actions.retry) { name ->
-                NavRow(R.drawable.ic_edit, "Name: $name", "The name other devices see.", "rename", onRename)
+        if (live) {
+            if (caps.canRename) {
+                SectionContent(state.name, "Name", "name-row", actions.retry) { name ->
+                    NavRow(R.drawable.ic_edit, "Name: $name", "The name other devices see.", "rename", onRename)
+                }
             }
-            NavRow(R.drawable.ic_bluetooth, "Pairing mode", "Lets a new device pair. The headphones disconnect from this phone.", "pairing-mode", onPairing)
-            NavRow(R.drawable.ic_power, "Power off", null, "power-off", onPowerOff)
+            if (caps.canPair) {
+                NavRow(R.drawable.ic_bluetooth, "Pairing mode", "Lets a new device pair. The headphones disconnect from this phone.", "pairing-mode", onPairing)
+            }
+            if (caps.canPowerOff) {
+                NavRow(R.drawable.ic_power, "Power off", null, "power-off", onPowerOff)
+            }
         }
     }
 }
 
 @Composable
-fun BoseBanner(actions: Actions) {
-    SettingsCard("Bose app installed", "bose-banner") {
-        Description("The Bose app can take over the connection. If this app stops responding, force stop the Bose app.", Pad)
+fun BoseBanner(actions: Actions, companionAppName: String? = null) {
+    val appName = companionAppName ?: "Bose"
+    SettingsCard("$appName app installed", "bose-banner") {
+        Description("The $appName app can take over the connection. If this app stops responding, force stop the $appName app.", Pad)
         FilledTonalButton(onClick = actions.openBoseAppSettings, modifier = Pad.testTag("open-bose-settings")) {
-            Text("Open Bose app settings")
+            Text("Open $appName app settings")
         }
     }
 }
