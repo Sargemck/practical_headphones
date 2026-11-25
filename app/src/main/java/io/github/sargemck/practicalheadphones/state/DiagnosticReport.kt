@@ -10,27 +10,21 @@ package io.github.sargemck.practicalheadphones.state
  *   renamed headset (e.g. `"Alice's XM5"`) never leaks the user's name.
  */
 object DiagnosticReport {
-    private val KNOWN_MODEL_PATTERNS = listOf(
-        Regex("""(?i)qc ultra earbuds\s*2?"""),
-        Regex("""(?i)qc ultra(?:\s*2)?"""),
-        Regex("""(?i)ultra open(?:\s*earbuds)?"""),
-        Regex("""(?i)qc\s*45|quietcomfort\s*45"""),
-        Regex("""(?i)qc\s*35(?:\s*ii)?|quietcomfort\s*35(?:\s*ii)?"""),
-        Regex("""(?i)quietcomfort"""),
-        Regex("""(?i)w[hf]-1000xm[3-6]"""),
-        Regex("""(?i)wh-ch\d{3}n?"""),
-        Regex("""(?i)linkbuds(?:\s*[a-z]+)?"""),
-        Regex("""(?i)life\s*q3[05]"""),
-        Regex("""(?i)space\s*(?:q45|one(?:\s*pro)?|2)"""),
-        Regex("""(?i)liberty\s*4(?:\s*nc)?"""),
-        Regex("""(?i)galaxy\s*buds(?:\s*2(?:\s*pro)?|\s*fe|\s*live|\s*pro)?"""),
-        Regex("""(?i)cmf\s*(?:headphone\s*pro|buds\s*2(?:\s*plus|\s*pro)?)"""),
-        Regex("""(?i)(?:nothing\s*)?ear\s*(?:\([a12]\)|\(stick\)|\(open\))?"""),
-        Regex("""(?i)headphone\s*\(1\)"""),
-        Regex("""(?i)jbl\s*(?:tune|live|wave|tour)[a-z0-9\s-]{0,16}"""),
+    // Return a catalog label, never text copied from a Bluetooth name.
+    private val MODEL_LABELS = listOf(
+        "QC Ultra Earbuds 2", "QC Ultra 2", "QC Ultra", "Ultra Open Earbuds",
+        "QuietComfort 45", "QuietComfort 35 II", "QuietComfort 35", "QuietComfort",
+        "QC45", "QC35 II", "QC35",
+        "WH-1000XM3", "WH-1000XM4", "WH-1000XM5", "WH-1000XM6", "WF-1000XM4", "WF-1000XM5",
+        "WH-CH720N", "LinkBuds S", "LinkBuds",
+        "Life Q30", "Life Q35", "Space Q45", "Space One Pro", "Space One", "Space 2",
+        "Liberty 4 NC", "Liberty 4", "Galaxy Buds2 Pro", "Galaxy Buds2", "Galaxy Buds FE",
+        "Galaxy Buds Live", "Galaxy Buds Pro", "CMF Headphone Pro", "CMF Buds 2",
+        "Nothing Ear (a)", "Nothing Ear (2)", "Nothing Ear", "Ear (a)", "Ear (2)", "Headphone (1)",
+        "JBL Tune 230NC TWS", "JBL Wave Buds 2",
     )
 
-    private val MAC_REGEX = Regex("""([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}""")
+    private val FIRMWARE_VERSION = Regex("""^\d+(?:\.\d+){1,3}(?:\+g[0-9a-f]{7,40})?$""")
 
     fun build(state: HeadphoneState, appVersion: String, sdkInt: Int): String {
         val active = if (state.link == LinkState.Connected) state else (state.lastKnown ?: state)
@@ -45,7 +39,7 @@ object DiagnosticReport {
             appendLine("- App: $appVersion (Android SDK $sdkInt)")
             appendLine("- Link: ${state.link} (paired options: ${state.availableDevices.size})")
             appendLine("- Device: $brand · $model ($tier)")
-            appendLine("- Firmware: ${describeSection(active.firmware) { redactMacs(it) }}")
+            appendLine("- Firmware: ${describeSection(active.firmware) { if (FIRMWARE_VERSION.matches(it)) it else "present" }}")
             appendLine(
                 "- Capabilities: rename=${caps.canRename}, pair=${caps.canPair}, " +
                     "powerOff=${caps.canPowerOff}, editModes=${caps.canEditModes}",
@@ -67,20 +61,13 @@ object DiagnosticReport {
         }.trimEnd()
     }
 
-    internal fun sanitizeModel(raw: String): String {
-        for (pattern in KNOWN_MODEL_PATTERNS) {
-            val match = pattern.find(raw)
-            if (match != null) return match.value.trim()
-        }
-        return "<custom alias redacted>"
-    }
-
-    private fun redactMacs(text: String): String = MAC_REGEX.replace(text, "XX:XX:XX:XX:XX:XX")
+    internal fun sanitizeModel(raw: String): String =
+        MODEL_LABELS.firstOrNull { raw.contains(it, ignoreCase = true) } ?: "unknown model"
 
     private fun <T> describeSection(section: Section<T>, onLoaded: (T) -> String): String = when (section) {
         Section.Loading -> "loading"
         Section.Unsupported -> "unsupported"
-        is Section.Failed -> "failed(${redactMacs(section.message)})"
+        is Section.Failed -> "failed"
         is Section.Loaded -> "loaded:${onLoaded(section.value)}"
     }
 }

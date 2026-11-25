@@ -2,15 +2,23 @@
 
 [![Check](https://github.com/Sargemck/practical_headphones/actions/workflows/check.yml/badge.svg)](https://github.com/Sargemck/practical_headphones/actions/workflows/check.yml)
 
-Practical Headphones is a lightweight, zero-permission-creep Android app for controlling Bluetooth headphones directly over Classic Bluetooth (RFCOMM) and BLE GATT — no vendor account, no cloud sync, no background telemetry, and no `INTERNET` permission. Built and hardware-verified for the **Bose QuietComfort Ultra Headphones (2nd Gen)**, with experimental multi-brand support across **Bose**, **Sony**, **Anker Soundcore**, **Samsung Galaxy Buds**, **Nothing / CMF**, and **JBL**.
+Switch modes or noise cancelling from an Android home screen widget or Quick Settings tile. Open the app for EQ and model-specific controls. Practical Headphones talks directly to the headphones over Bluetooth, with no vendor account, telemetry or `INTERNET` permission.
 
-A Material You home screen widget, a Quick Settings tile, and an ongoing notification keep everyday controls one tap away, and optional Companion Device auto-connect makes the app ready the moment your headphones connect.
+Hardware-verified on the **Bose QuietComfort Ultra Headphones (2nd Gen)**. Support for other Bose models, Sony, Anker Soundcore, Samsung Galaxy Buds, Nothing / CMF and JBL is [experimental](#supported-headphones).
 
-Not affiliated with Bose, Sony, Anker/Soundcore, Samsung, Nothing, or HARMAN/JBL. Bose and QuietComfort are trademarks of Bose Corporation. Sony is a trademark of Sony Group Corporation. Soundcore is a trademark of Anker Innovations Limited. Samsung and Galaxy Buds are trademarks of Samsung Electronics Co., Ltd. Nothing and CMF are trademarks of Nothing Technology Limited. JBL is a trademark of HARMAN International Industries, Incorporated.
+## Install
 
-| Main screen | All modes | New mode |
-|---|---|---|
-| ![Main screen](fastlane/metadata/android/en-US/images/phoneScreenshots/1.png) | ![All modes](fastlane/metadata/android/en-US/images/phoneScreenshots/3.png) | ![New mode](fastlane/metadata/android/en-US/images/phoneScreenshots/2.png) |
+[Download the Android APK](https://github.com/Sargemck/practical_headphones/releases/latest) for Android 12 or newer. Pair your headphones in Android's Bluetooth settings, then open the app and allow Nearby devices. F-Droid is planned.
+
+<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" alt="Main screen with headphone controls" width="260">
+
+<details>
+<summary>All modes and New mode screenshots</summary>
+
+<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3.png" alt="All modes" width="260">
+<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2.png" alt="New mode" width="260">
+
+</details>
 
 ## Features
 
@@ -21,11 +29,7 @@ Not affiliated with Bose, Sony, Anker/Soundcore, Samsung, Nothing, or HARMAN/JBL
 - **Device & battery:** single or per-earbud (`L / R / Case`) battery readout, multipoint status, multi-headphone switcher, rename, pairing mode, and power off.
 - **Quick Settings tile, Material You widget & ongoing notification:** one-tap mode / ANC cycling and live battery readout from anywhere on the phone.
 - **Auto-connect, smart multi-pair auto-switch & offline view:** starts automatically when associated headphones connect (Android 16+), switches automatically to whichever paired headset is actively connected, and shows the last known settings dimmed when disconnected.
-- **Privacy-safe diagnostics:** one-tap diagnostic report copy on the About screen with zero MAC addresses or personal device aliases.
-
-## Install
-
-Download the APK from [GitHub Releases](https://github.com/Sargemck/practical_headphones/releases). F-Droid is planned.
+- **Diagnostics:** copy the connection state, model information and available controls from the About screen.
 
 ## Supported Headphones
 
@@ -37,11 +41,14 @@ Download the APK from [GitHub Releases](https://github.com/Sargemck/practical_he
 - **Nothing / CMF (Experimental):** Nothing Ear, Ear (a), Ear (2), Headphone (1), CMF Headphone Pro, CMF Buds 2 (NT Link RFCOMM).
 - **JBL (Experimental):** JBL Tune 230NC TWS, Wave Buds 2, and compatible `excelpoint` BLE GATT earbuds.
 
+Own an experimental model? Try the [latest APK](https://github.com/Sargemck/practical_headphones/releases/latest) and [open a compatibility issue](https://github.com/Sargemck/practical_headphones/issues/new) with the model, what worked and what failed.
+In **About**, tap **Copy diagnostic report**. Review it for personal names before posting, especially on v1.1.0.
+
 ## Requirements
 
 - Android 12 (API 31) or newer. Companion-device auto-connect requires Android 16 or newer.
-- Supported headphones paired with the phone over Classic Bluetooth.
-- Only one app can hold the RFCOMM control channel at a time. If an official companion app takes over the link, Practical Headphones detects contention rather than fighting for the socket and offers a one-tap **Reconnect**.
+- Supported headphones paired with the phone over Bluetooth.
+- Only one app can hold the Bluetooth control link at a time. If an official companion app takes over the link, close the companion app and tap **Reconnect** in Practical Headphones.
 
 ## Privacy
 
@@ -93,6 +100,8 @@ Protocol knowledge and ported logic come from open-source MIT projects:
 - [omarchy-headphones](https://github.com/ncr/omarchy-headphones) — Jacek Becela (MIT)
 
 Icons are Material Icons by Google (Apache License 2.0). Full notices in [NOTICE](NOTICE).
+
+Not affiliated with Bose, Sony, Anker/Soundcore, Samsung, Nothing, or HARMAN/JBL. Bose and QuietComfort are trademarks of Bose Corporation. Sony is a trademark of Sony Group Corporation. Soundcore is a trademark of Anker Innovations Limited. Samsung and Galaxy Buds are trademarks of Samsung Electronics Co., Ltd. Nothing and CMF are trademarks of Nothing Technology Limited. JBL is a trademark of HARMAN International Industries, Incorporated.
 
 ## Licence
 

@@ -2,6 +2,7 @@ package io.github.sargemck.practicalheadphones.state
 
 import io.github.sargemck.practicalheadphones.bmap.ModeConfig
 import io.github.sargemck.practicalheadphones.bmap.Spatial
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -38,5 +39,20 @@ class DiagnosticReportTest {
         assertFalse("Secret Office" in report, "Custom mode name leaked: $report")
         assertFalse("11:22:33:44:55:66" in report, "Paired MAC leaked: $report")
         assertFalse("AA:BB:CC:DD:EE:FF" in report, "Firmware MAC leaked: $report")
+    }
+
+    @Test
+    fun `diagnostics never copy free text from a Bluetooth name or error`() {
+        for (alias in listOf("JBL Tune Sam", "JBL Wave Buds 2 - Sam", "LinkBuds Sam")) {
+            val state = HeadphoneState(
+                deviceBadge = DeviceBadge("JBL", alias, experimental = true),
+                firmware = Section.Loaded("Sam's firmware"),
+                battery = Section.Failed("Sam's headphones disconnected"),
+            )
+            val report = DiagnosticReport.build(state, appVersion = "1.1.0", sdkInt = 37)
+            assertFalse("Sam" in report)
+        }
+        assertEquals("unknown model", DiagnosticReport.sanitizeModel("JBL Tune Sam"))
+        assertEquals("JBL Wave Buds 2", DiagnosticReport.sanitizeModel("JBL Wave Buds 2 - Sam"))
     }
 }
