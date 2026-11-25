@@ -40,15 +40,30 @@ fun AboutContent(state: HeadphoneState, appVersion: String, actions: Actions, pa
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = pad,
                 )
-                Description("Controls Bose QC Ultra Headphones (2nd Gen) over Bluetooth.", pad)
-                Description("Not affiliated with Bose.", pad)
+                Description("Controls Bose, Sony, Anker Soundcore, Samsung, Nothing and JBL headphones directly over Bluetooth.", pad)
+                Description("Not affiliated with Bose, Sony, Anker/Soundcore, Samsung, Nothing or HARMAN/JBL.", pad)
+                TextButton(
+                    onClick = actions.copyDiagnostics,
+                    modifier = Modifier.padding(horizontal = 4.dp).testTag("copy-diagnostics"),
+                ) {
+                    Text("Copy diagnostic report")
+                }
             }
         }
         item {
             SettingsCard("Credits", "about-credits") {
-                Description("Protocol knowledge from bosectl, MIT License, Copyright (c) 2026 Aaron Bockelie.", pad)
+                Description("Protocol knowledge and ported logic from open-source MIT projects:", pad)
                 TextButton(onClick = { actions.openUrl(Licences.BOSECTL_URL) }, modifier = Modifier.padding(horizontal = 4.dp).testTag("bosectl-link")) {
-                    Text("Open bosectl on GitHub")
+                    Text("bosectl · Aaron Bockelie (MIT)")
+                }
+                TextButton(onClick = { actions.openUrl(Licences.SONY_CLIENT_URL) }, modifier = Modifier.padding(horizontal = 4.dp).testTag("sony-client-link")) {
+                    Text("SonyHeadphonesClient · Nir Harel et al. (MIT)")
+                }
+                TextButton(onClick = { actions.openUrl(Licences.SOUNDCORE_BRIDGE_URL) }, modifier = Modifier.padding(horizontal = 4.dp).testTag("soundcorebridge-link")) {
+                    Text("soundcorebridge · Mervin (MIT)")
+                }
+                TextButton(onClick = { actions.openUrl(Licences.OMARCHY_URL) }, modifier = Modifier.padding(horizontal = 4.dp).testTag("omarchy-link")) {
+                    Text("omarchy-headphones · Jacek Becela (MIT)")
                 }
                 Description("Icons: Material Icons by Google, Apache License 2.0.", pad)
             }

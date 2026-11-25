@@ -462,7 +462,8 @@ fun SoundCard(state: HeadphoneState, actions: Actions) {
             if (customPresets != null) {
                 val sorted = bands.sortedBy { it.bandId }
                 val values = sorted.map { it.current }
-                val matched = customPresets.firstOrNull { it.values.isNotEmpty() && it.values == values }
+                val matched = state.selectedEqPreset?.let { id -> customPresets.firstOrNull { it.id == id } }
+                    ?: customPresets.firstOrNull { it.values.isNotEmpty() && it.values == values }
                 var customOpen by rememberSaveable { mutableStateOf(false) }
                 val showSliders = sorted.isNotEmpty() && (matched == null || customOpen)
                 FlowRow(Pad, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

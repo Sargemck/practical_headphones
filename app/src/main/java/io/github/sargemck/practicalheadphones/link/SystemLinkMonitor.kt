@@ -27,14 +27,15 @@ class SystemLinkMonitor(
     private val log: (String) -> Unit,
 ) {
     private val adapter = context.getSystemService(BluetoothManager::class.java).adapter
-    private val connected = mutableMapOf(
-        BluetoothProfile.A2DP to false,
-        BluetoothProfile.HEADSET to false,
-    ).apply {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) put(BluetoothProfile.LE_AUDIO, false)
+    private val profiles = buildList {
+        add(BluetoothProfile.A2DP)
+        add(BluetoothProfile.HEADSET)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(BluetoothProfile.LE_AUDIO)
     }
+    private val activeByProfile = profiles.associateWith { mutableSetOf<String>() }
     private val proxies = mutableMapOf<Int, BluetoothProfile>()
     private var last: SystemLink? = null
+    private var lastAddress: String? = null
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(c: Context, intent: Intent) {
@@ -42,13 +43,14 @@ class SystemLinkMonitor(
                 BluetoothAdapter.ACTION_STATE_CHANGED -> {
                     val on = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) == BluetoothAdapter.STATE_ON
                     log("SYSTEM bluetooth ${if (on) "on" else "not on"}")
-                    if (!on) connected.keys.forEach { connected[it] = false }
+                    if (!on) activeByProfile.values.forEach { it.clear() }
                     if (on) queryProfiles()
                 }
                 BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED -> profileChanged(BluetoothProfile.A2DP, intent)
                 BluetoothHeadset.ACTION_CONNECTION_STATE_CHANGED -> profileChanged(BluetoothProfile.HEADSET, intent)
                 BluetoothDevice.ACTION_BOND_STATE_CHANGED -> {
-                    if (locator.find(adapter) == null) connected.keys.forEach { connected[it] = false }
+                    val bondedAddresses = adapter.bondedDevices.orEmpty().map { it.address }.toSet()
+                    activeByProfile.values.forEach { set -> set.retainAll(bondedAddresses) }
                 }
                 else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     intent.action == BluetoothLeAudio.ACTION_LE_AUDIO_CONNECTION_STATE_CHANGED
@@ -80,21 +82,28 @@ class SystemLinkMonitor(
         runCatching { context.unregisterReceiver(receiver) }
         proxies.forEach { (profile, proxy) -> adapter.closeProfileProxy(profile, proxy) }
         proxies.clear()
+        activeByProfile.values.forEach { it.clear() }
+        last = null
+        lastAddress = null
     }
 
     private fun profileChanged(profile: Int, intent: Intent) {
         @Suppress("DEPRECATION")
-        val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
-        if (device == null || device != locator.find(adapter)) return
+        val device = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
         val state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1)
-        connected[profile] = state == BluetoothProfile.STATE_CONNECTED
+        val set = activeByProfile[profile] ?: return
+        if (state == BluetoothProfile.STATE_CONNECTED) {
+            set.add(device.address)
+        } else {
+            set.remove(device.address)
+        }
         log("SYSTEM ${name(profile)} state=$state")
     }
 
     /** Initial state through the profile proxies (they connect asynchronously). */
     private fun queryProfiles() {
         if (!adapter.isEnabled) return
-        for (profile in connected.keys) {
+        for (profile in profiles) {
             proxies[profile]?.let { update(profile, it); continue }
             adapter.getProfileProxy(context, object : BluetoothProfile.ServiceListener {
                 override fun onServiceConnected(p: Int, proxy: BluetoothProfile) {
@@ -111,16 +120,29 @@ class SystemLinkMonitor(
     }
 
     private fun update(profile: Int, proxy: BluetoothProfile) {
-        val device = locator.find(adapter) ?: return
-        connected[profile] = proxy.getConnectionState(device) == BluetoothProfile.STATE_CONNECTED
+        val set = activeByProfile[profile] ?: return
+        set.clear()
+        runCatching { proxy.connectedDevices }.getOrDefault(emptyList()).forEach { set.add(it.address) }
     }
 
     private fun publish() {
+        val connectedSet = if (adapter.isEnabled) activeByProfile.values.flatten().toSet() else emptySet()
+        val active = if (adapter.isEnabled) locator.find(adapter, connectedSet) else null
         val link = SystemLink(
             bluetoothOn = adapter.isEnabled,
-            paired = adapter.isEnabled && locator.find(adapter) != null,
-            connected = adapter.isEnabled && connected.values.any { it },
+            paired = active != null,
+            connected = active != null && active.address in connectedSet,
         )
+        val switched = active?.address != null && lastAddress != null && active.address != lastAddress && link.connected
+        if (active?.address != null) lastAddress = active.address
+        if (switched && last == link) {
+            // Active headset auto-switched to a newly connected pair while link stayed Connected:
+            // bounce through disconnected -> connected so the repository opens the new driver.
+            log("SYSTEM auto-switched active headset")
+            onChange(link.copy(connected = false))
+            onChange(link)
+            return
+        }
         if (link != last) {
             last = link
             log("SYSTEM $link")

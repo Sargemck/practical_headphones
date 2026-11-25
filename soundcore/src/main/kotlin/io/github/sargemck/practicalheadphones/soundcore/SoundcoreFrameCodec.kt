@@ -85,8 +85,13 @@ class SoundcoreFrameParser(private val expectTx: Boolean = false) {
             }
             if (buffer.size < totalLen) break
             val raw = ByteArray(totalLen) { buffer[it] }
-            buffer.subList(0, totalLen).clear()
-            SoundcoreFrameCodec.decode(raw, expectTx)?.let(out::add)
+            val decoded = SoundcoreFrameCodec.decode(raw, expectTx)
+            if (decoded != null) {
+                buffer.subList(0, totalLen).clear()
+                out.add(decoded)
+            } else {
+                buffer.removeAt(0)
+            }
         }
         return out
     }

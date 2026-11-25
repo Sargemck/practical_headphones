@@ -110,7 +110,7 @@ What we learned from the real phone and headphones. If this file contradicts CLA
   01:14:27.9  boot_progress_start
   01:14:38.6  boot_progress_enable_screen        (~35 s after reboot)
   01:14:39.8  UsbDebuggingActivity shown         ("Allow USB debugging?" asked again)
-  01:14:52.1  keyguardGoingAway, user 0 unlocking (Baris entered PIN)
+  01:14:52.1  keyguardGoingAway, user 0 unlocking (Sargemck entered PIN)
   01:15:07.4  DeadSystemException in many apps    (system_server died and restarted; root-cause logs rotated out)
   01:15:08.1  boot_progress_start (second time)
   01:15:20.5  A2DP Connected for the headphones
@@ -237,13 +237,13 @@ Common to every entry below unless stated:
   Also seen at session start: ACL connected 10:57:35 and dropped 20 s later (reason 19), cause unknown. Watch item: log it if it recurs.
 - Conclusion:
   - A BMAP heartbeat does not keep the headphones awake; they drop the link about 10.5 min after it comes up.
-  - A connect attempt from our app wakes sleeping headphones (the first attempt may fail while doing so). A Bluetooth toggle doesn't. Hands-off runs can wake them without Baris.
+  - A connect attempt from our app wakes sleeping headphones (the first attempt may fail while doing so). A Bluetooth toggle doesn't. Hands-off runs can wake them without Sargemck.
   - Design rule added to CLAUDE.md: never connect unless Android reports the headphones connected, so the app doesn't keep waking them in a bag.
 
 ### 2026-10-28 M0 E0b: silent audio (incomplete)
 
 - Tested: fresh link (ACL Connected 11:36:32 after E7), SPP socket open with no heartbeat, `SilentAudioService` playing zeros from the front spike activity.
-- Evidence: `mIsPlaying: true`, audio output `bt_a2dp` = the headphones. Still connected at 11:38:31. Stopped at 11:39 (2.5 min in) because Baris needed the phone.
+- Evidence: `mIsPlaying: true`, audio output `bt_a2dp` = the headphones. Still connected at 11:38:31. Stopped at 11:39 (2.5 min in) because Sargemck needed the phone.
 - Conclusion: **no result.** Needs a 12+ min run from a fresh link. Not blocking: hands-off runs can wake the headphones by connecting (E0c), and in real use they're worn or playing.
 - Dropped after M0 review (2026-10-28): a heartbeat doesn't prevent sleep (E0a), a connect wakes them (E0c), and the real app must not keep the headphones awake. `SilentAudioService` and its permissions are deleted.
 
@@ -408,11 +408,11 @@ Common to every entry below unless stated:
 
 ### 2026-10-30 M3: notes
 
-- Headphones switched off don't answer a spike connect (2x `PAGE_TIMEOUT` after 5 s, 2026-10-29 and 2026-10-30). The spike wake works only when they're asleep. After Baris turned them on, ACL connected and the already-running service connected on that event and had everything loaded 2.4 s later.
+- Headphones switched off don't answer a spike connect (2x `PAGE_TIMEOUT` after 5 s, 2026-10-29 and 2026-10-30). The spike wake works only when they're asleep. After Sargemck turned them on, ACL connected and the already-running service connected on that event and had everything loaded 2.4 s later.
 
 ## S1 device session, 2026-11-03
 
-- Firmware: 10.12.12+ga927c9a. Phone: Pixel 10 Pro, Android 17 (SDK 37). Second source: Baris's Windows PC, playing game audio.
+- Firmware: 10.12.12+ga927c9a. Phone: Pixel 10 Pro, Android 17 (SDK 37). Second source: Sargemck's Windows PC, playing game audio.
 - Spike session over the reflection path. Headphones on the desk. Five paired devices: the phone, the PC, and three others (devices C, D, E). MACs are written as `PHONE_MAC` / `PC_MAC`, other MACs and every device name are left out. Raw logs stay in the session scratchpad.
 - Timings are from the spike's log clock (ms).
 
@@ -444,7 +444,7 @@ Common to every entry below unless stated:
   - `[5.1]` stayed on the PC every time
   - `dumpsys audio` shows each notification player started, with the phone's active output `bt_a2dp` at notification volume 6/7
 - So `[5.1]` doesn't show a notification taking over.
-- By ear (Baris, 2026-11-04, playing on the PC during the runs): the PC audio was interrupted a couple of times and then came back. The notification steal is real, and `[5.1]` can't detect it.
+- By ear (Sargemck, 2026-11-04, playing on the PC during the runs): the PC audio was interrupted a couple of times and then came back. The notification steal is real, and `[5.1]` can't detect it.
 
 ### 2026-11-03 S1 E4: routing
 
@@ -475,7 +475,7 @@ Common to every entry below unless stated:
 
 ### 2026-11-03 S1: notes
 
-- The headphones dropped both sources at the 10-minute idle mark (M0 E0) during setup. The spike wake brought back only the phone, and the PC reconnected when Baris started the game.
+- The headphones dropped both sources at the 10-minute idle mark (M0 E0) during setup. The spike wake brought back only the phone, and the PC reconnected when Sargemck started the game.
 - The transport's 3 s timeout fires on `[4.1]` because the connect finishes without a reply. A real feature can't retry it as a failed request: the retry would send a second connect.
 
 ## M4 device session, 2026-11-04

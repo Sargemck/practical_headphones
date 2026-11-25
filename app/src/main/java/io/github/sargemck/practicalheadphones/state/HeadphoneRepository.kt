@@ -90,6 +90,7 @@ class HeadphoneRepository(
     private val visibility = MutableStateFlow(Visibility(uiVisible = false, screenOn = true))
 
     private var session: Job? = null
+    private var sessionScope: CoroutineScope? = null
     private var driver: HeadphoneDriver? = null
 
     private val writeStarts = mutableMapOf<SectionKey, Int>()
@@ -111,8 +112,8 @@ class HeadphoneRepository(
 
     fun onScreen(on: Boolean) = visibility.update { it.copy(screenOn = on) }
 
-    fun setBoseAppInstalled(installed: Boolean, companionName: String? = null) =
-        _state.update { it.copy(boseAppInstalled = installed, companionAppName = companionName) }
+    fun setBoseAppInstalled(installed: Boolean, companionName: String? = null, companionPackage: String? = null) =
+        _state.update { it.copy(boseAppInstalled = installed, companionAppName = companionName, companionAppPackage = companionPackage) }
 
     fun setAvailableDevices(devices: List<PairedHeadphoneChoice>) =
         _state.update { it.copy(availableDevices = devices) }
@@ -149,6 +150,7 @@ class HeadphoneRepository(
     private fun startSession() {
         endSession()
         session = scope.launch {
+            sessionScope = this
             val started = clock()
             val d = try {
                 driverConnector.connect(this)
@@ -199,6 +201,7 @@ class HeadphoneRepository(
     private fun endSession() {
         session?.cancel()
         session = null
+        sessionScope = null
         driver?.close()
         driver = null
         audioWriter = null
@@ -286,8 +289,8 @@ class HeadphoneRepository(
         started(SectionKey.Audio)
         _state.update { it.copy(audio = Section.Loaded(wanted)) }
         if (audioWriter?.isActive == true) return
-        val owner = session ?: return
-        audioWriter = scope.launch(owner) {
+        val owner = sessionScope ?: return
+        audioWriter = owner.launch {
             active(SectionKey.Audio) {
                 while (true) {
                     val target = audioTarget ?: break
@@ -395,19 +398,42 @@ class HeadphoneRepository(
     }
 
     override fun nextFavouriteMode() {
-        val modes = _state.value.modes.valueOrNull() ?: return message("Not connected")
-        nextFavourite(modes)?.let(::selectMode) ?: message("No favourite modes")
+        val state = _state.value
+        val modes = state.modes.valueOrNull()
+        if (modes != null) {
+            nextFavourite(modes)?.let(::selectMode) ?: message("No favourite modes")
+            return
+        }
+        val anc = state.discreteAnc.valueOrNull()
+        if (anc != null && anc.options.size >= 2) {
+            val idx = anc.options.indexOfFirst { it.id == anc.selectedId }
+            val next = anc.options[(idx + 1).mod(anc.options.size)]
+            setDiscreteAnc(next.id)
+            return
+        }
+        message("Not connected")
     }
 
     override fun setEqBand(bandId: Int, value: Int) {
-        val bands = _state.value.eq.valueOrNull() ?: return message("Not connected")
-        writeSection(
-            key = SectionKey.Eq,
-            optimistic = bands.map { if (it.bandId == bandId) it.copy(current = value) else it },
-            get = { it.eq },
-            set = { s, v -> s.copy(eq = v) },
-            failure = "Couldn't change the equaliser",
-        ) { it.setEqBand(bandId, value) }
+        val d = driver ?: return message("Not connected")
+        val previousState = _state.value
+        val bands = previousState.eq.valueOrNull() ?: return message("Not connected")
+        val previousPreset = previousState.selectedEqPreset
+        val optimistic = bands.map { if (it.bandId == bandId) it.copy(current = value) else it }
+        started(SectionKey.Eq)
+        _state.update { it.copy(eq = Section.Loaded(optimistic), selectedEqPreset = null) }
+        launchInSession {
+            active(SectionKey.Eq) {
+                try {
+                    val confirmed = d.setEqBand(bandId, value)
+                    _state.update { it.copy(eq = Section.Loaded(confirmed), selectedEqPreset = null) }
+                } catch (e: DriverException) {
+                    _state.update { it.copy(eq = Section.Loaded(bands), selectedEqPreset = previousPreset) }
+                    message("Couldn't change the equaliser")
+                    log("write Eq failed: ${e.message}")
+                }
+            }
+        }
     }
 
     override fun setEq(bass: Int, mid: Int, treble: Int) {
@@ -434,20 +460,30 @@ class HeadphoneRepository(
     }
 
     override fun setEqPreset(presetId: String) {
-        val bands = _state.value.eq.valueOrNull() ?: return message("Not connected")
-        val preset = _state.value.eqPresets?.firstOrNull { it.id == presetId }
-        val optimistic = if (preset != null && preset.values.size == bands.size) {
+        val d = driver ?: return message("Not connected")
+        val previousState = _state.value
+        val bands = previousState.eq.valueOrNull() ?: return message("Not connected")
+        val previousPreset = previousState.selectedEqPreset
+        val preset = previousState.eqPresets?.firstOrNull { it.id == presetId }
+        val optimistic = if (preset != null && preset.values.size == bands.size && bands.isNotEmpty()) {
             bands.sortedBy { it.bandId }.mapIndexed { i, b -> b.copy(current = preset.values[i]) }
         } else {
             bands
         }
-        writeSection(
-            key = SectionKey.Eq,
-            optimistic = optimistic,
-            get = { it.eq },
-            set = { s, v -> s.copy(eq = v) },
-            failure = "Couldn't change the equaliser",
-        ) { it.setEqPreset(presetId) }
+        started(SectionKey.Eq)
+        _state.update { it.copy(eq = Section.Loaded(optimistic), selectedEqPreset = presetId) }
+        launchInSession {
+            active(SectionKey.Eq) {
+                try {
+                    val confirmed = d.setEqPreset(presetId)
+                    _state.update { it.copy(eq = Section.Loaded(confirmed), selectedEqPreset = presetId) }
+                } catch (e: DriverException) {
+                    _state.update { it.copy(eq = Section.Loaded(bands), selectedEqPreset = previousPreset) }
+                    message("Couldn't change the equaliser")
+                    log("write EqPreset failed: ${e.message}")
+                }
+            }
+        }
     }
 
     override fun setSelfVoice(level: SelfVoiceLevel) {
@@ -635,8 +671,8 @@ class HeadphoneRepository(
     // Helpers
 
     private fun launchInSession(block: suspend CoroutineScope.() -> Unit) {
-        val owner = session ?: return
-        scope.launch(owner, block = block)
+        val owner = sessionScope ?: return
+        owner.launch(block = block)
     }
 
     private fun started(key: SectionKey) {

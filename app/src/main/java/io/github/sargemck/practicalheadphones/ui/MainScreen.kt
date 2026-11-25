@@ -167,21 +167,39 @@ private fun MainContent(
             for ((title, text) in previewSections) section { PreviewCard(title, text) }
             return@LazyColumn
         }
-        section { ModesCard(shown, actions, edit) }
-        section { NoiseCard(shown, actions) }
-        if (shown.discreteAnc != io.github.sargemck.practicalheadphones.state.Section.Unsupported) {
+        if (shown.modes != io.github.sargemck.practicalheadphones.state.Section.Unsupported && (live || shown.modes is io.github.sargemck.practicalheadphones.state.Section.Loaded)) {
+            section { ModesCard(shown, actions, edit) }
+        }
+        if (shown.audio != io.github.sargemck.practicalheadphones.state.Section.Unsupported && (live || shown.audio is io.github.sargemck.practicalheadphones.state.Section.Loaded)) {
+            section { NoiseCard(shown, actions) }
+        }
+        if (shown.discreteAnc != io.github.sargemck.practicalheadphones.state.Section.Unsupported && (live || shown.discreteAnc is io.github.sargemck.practicalheadphones.state.Section.Loaded)) {
             section { DiscreteNoiseCard(shown, actions) }
         }
-        section { SoundCard(shown, actions) }
-        section { CallsCard(shown, actions) }
-        section {
-            DeviceCard(
-                shown,
-                actions,
-                onRename = { openDialog(DeviceDialog.Rename) },
-                onPairing = { openDialog(DeviceDialog.Pairing) },
-                onPowerOff = { openDialog(DeviceDialog.PowerOff) },
-            )
+        if (shown.eq != io.github.sargemck.practicalheadphones.state.Section.Unsupported && (live || shown.eq is io.github.sargemck.practicalheadphones.state.Section.Loaded)) {
+            section { SoundCard(shown, actions) }
+        }
+        val hasCalls = listOf(shown.selfVoice, shown.autoAnswer, shown.speakToChat).any {
+            if (live) it != io.github.sargemck.practicalheadphones.state.Section.Unsupported else it is io.github.sargemck.practicalheadphones.state.Section.Loaded
+        }
+        if (hasCalls) {
+            section { CallsCard(shown, actions) }
+        }
+        val caps = shown.capabilities
+        val hasDevice = (live && (caps.canRename || caps.canPair || caps.canPowerOff)) ||
+            listOf(shown.autoPlayPause, shown.multipoint).any {
+                if (live) it != io.github.sargemck.practicalheadphones.state.Section.Unsupported else it is io.github.sargemck.practicalheadphones.state.Section.Loaded
+            }
+        if (hasDevice) {
+            section {
+                DeviceCard(
+                    shown,
+                    actions,
+                    onRename = { openDialog(DeviceDialog.Rename) },
+                    onPairing = { openDialog(DeviceDialog.Pairing) },
+                    onPowerOff = { openDialog(DeviceDialog.PowerOff) },
+                )
+            }
         }
     }
 }

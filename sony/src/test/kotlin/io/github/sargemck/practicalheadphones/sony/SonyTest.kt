@@ -43,6 +43,10 @@ class SonyTest {
         val out = mutableListOf<SonyFrame>()
         for (b in wire) out += parser.feed(byteArrayOf(b))
         assertEquals(listOf(f1, f2), out)
+
+        // Stray/corrupted 0x3E before a valid frame must not swallow the valid frame
+        val noisy = byteArrayOf(SonyFrameCodec.HDR.toByte(), 0x12, 0x34) + SonyFrameCodec.encode(f2)
+        assertEquals(listOf(f2), parser.feed(noisy))
     }
 
     @Test

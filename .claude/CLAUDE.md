@@ -1,17 +1,17 @@
 # CLAUDE.md
 
-Android app to control Bose QC Ultra Headphones (2nd Gen) directly over Bluetooth. No Bose app, no cloud, no account, no internet permission.
+Android app to control Bose, Sony, Anker Soundcore and Samsung headphones directly over Bluetooth RFCOMM. No vendor companion app, no cloud, no account, no internet permission.
 
-Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs and review comments between us.
+Owner: Sargemck. Planner/reviewer: a separate Claude chat. The owner relays plans, PRs and review comments between us.
 
 ## Working agreement
 
-- Work from `docs/process/PLAN.md`, one milestone at a time. Never start the next milestone until Baris says the current one is approved.
+- Work from `docs/process/PLAN.md`, one milestone at a time. Never start the next milestone until the owner says the current one is approved.
 - At the start of a milestone, enter plan mode, write the plan, and stop. Commit it as `docs/process/plans/<milestone>.md` (lower case) on `main` and push; the reviewer reads plans and work from GitHub. Code after approval.
 - Work on `main`: commit and push there directly. No milestone branches or PRs.
 - Milestone report when done: what changed, how it was tested (unit + on-device), screenshots for UI, open questions, anything that differs from the plan and why.
 - Small commits with clear messages.
-- Baris's time with the phone is the scarcest resource. Follow "How testing works" in `docs/process/PLAN.md`: JVM tests and hands-off device runs do the work; Baris is only needed for the two hands-on sessions (H1, H2). Outside those, the most you ask for is the desk setup. If you're truly blocked on a physical action, stop, explain why it can't be tested any other way, and batch every ask into one.
+- Hands-on phone time is the scarcest resource. Follow "How testing works" in `docs/process/PLAN.md`: JVM tests and hands-off device runs do the work; manual testing is only needed for the two hands-on sessions (H1, H2). Outside those, the most you ask for is the desk setup. If you're truly blocked on a physical action, stop, explain why it can't be tested any other way, and batch every ask into one.
 - Anything learned from the real device goes into `docs/FINDINGS.md` with date, firmware version, and what was observed. Facts beat assumptions: if FINDINGS contradicts this file, FINDINGS wins. Flag the conflict in the milestone report.
 - If something in the plan turns out wrong or much harder than expected, stop and say so. Don't quietly work around it.
 
@@ -22,15 +22,15 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 - No `INTERNET` permission. No analytics, no crash reporting SDKs.
 - No JNI / native sockets.
 - Never force-push.
-- Don't install software on Baris's PC without saying what and why and getting a yes.
+- Don't install software on the host PC without saying what and why and getting a yes.
 - No fixed `delay()` to wait for a reply. Replies are awaited by matching frames (see Transport).
-- `:bmap` module has zero Android imports.
+- Protocol modules (`:bmap`, `:sony`, `:soundcore`, `:samsung`) have zero Android imports.
 - The repo is public. Never commit serial numbers, full MAC addresses or paired-device names. Fixtures and logs are redacted before committing: MACs keep their format with the bytes replaced, names and serials replaced, and every redaction listed in the fixtures README.
 
 ## Tech stack
 
 - Kotlin, Jetpack Compose, Material 3 with dynamic colour (Material You), single activity.
-- minSdk 31, targetSdk 37, compileSdk 37 (SDK package `platforms;android-37.0`). Baris's phone runs Android 17. (Play requires at least target 36 for new apps since 31 Aug 2026.)
+- minSdk 31, targetSdk 37, compileSdk 37 (SDK package `platforms;android-37.0`). Tested on Android 17. (Play requires at least target 36 for new apps since 31 Aug 2026.)
 - Edge-to-edge done properly: `Scaffold` + window insets. Nothing may draw under the status bar.
 - Coroutines + Flow. Plain constructor injection; no DI framework unless the plan says so.
 - Versions pinned in `gradle/libs.versions.toml` (version catalog). When adding or bumping a dependency (AGP, Kotlin, Compose BOM, anything), check the official release page for the current stable version. Never guess version numbers from memory.
@@ -43,8 +43,8 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 - JDK 21 (Temurin). `JAVA_HOME` set as a user env var.
 - Android SDK, command-line tools only, at `%LOCALAPPDATA%\Android\Sdk` (`$LOCALAPPDATA/Android/Sdk` in Git Bash). `ANDROID_HOME` set; `platform-tools` and `cmdline-tools/latest/bin` on PATH. `local.properties` is gitignored.
 - No global Gradle install. Always `./gradlew`.
-- Env var changes don't reach a running Claude Code session or VS Code. After changing them, ask Baris to restart VS Code, then continue.
-- Device: Baris's Pixel 10 Pro over USB, or wireless debugging. If `adb devices` shows `unauthorized`, ask Baris to accept the prompt on the phone.
+- Env var changes don't reach a running Claude Code session or VS Code. After changing them, ask the user to restart VS Code, then continue.
+- Device: test phone over USB, or wireless debugging. If `adb devices` shows `unauthorized`, ask the user to accept the prompt on the phone.
 - Commands (also VS Code tasks in `.vscode/tasks.json`):
   - `./gradlew :bmap:test`: fast unit tests
   - `./gradlew test lint assembleDebug`: full check, must pass before every push
@@ -53,18 +53,20 @@ Owner: Baris. Planner/reviewer: a separate Claude chat. Baris relays plans, PRs 
 - Hands-off device toolkit (proven in S0, see FINDINGS): `adb exec-out screencap -p` then view the PNG yourself, `adb shell input`, `adb shell uiautomator dump`, instrumented tests via `./gradlew connectedDebugAndroidTest`, `adb shell cmd bluetooth_manager disable|enable`, `adb shell am kill <pkg>` for process death. Never `force-stop` our own app to simulate process death: a force-stopped app isn't woken by the system. `adb reboot` is not hands-off on this phone (USB debugging prompt + PIN after boot), so reboot tests happen in H2. Never send power-off or pairing-mode during hands-off runs.
 - The screen locks after at most 5 min idle (device policy; "Stay awake" can't be enabled). Debug builds keep our activity on screen and above the lock screen; see Android rules.
 - The headphones drop the link about 10.5 min after it comes up when idle off-head, even with BMAP traffic (M0 FINDINGS). Every hands-off run starts by checking they're connected. If they're asleep, wake them with a spike connect (a connect attempt wakes them, M0 E0c). That's allowed for debug tooling only; the app itself follows the connect rule in Android rules. Only if the spike connect fails is it one batched ask.
-- Permissions for routine commands live in `.claude/settings.json`. Pushing, uninstalling apps and winget installs still ask Baris.
+- Permissions for routine commands live in `.claude/settings.json`. Pushing, uninstalling apps and winget installs still require confirmation.
 
 ## Module layout
 
 ```
-:bmap      pure Kotlin/JVM. Protocol codec, frame parser, device configs, parsers/builders,
-           connection API over an abstract byte transport. Unit tested.
-           testFixtures: FakeBmapDevice (in-memory simulator of a QC Ultra 2).
-:app       Android. RFCOMM transport, foreground service, state repository, Compose UI,
-           Quick Settings tile, notification, companion-device auto-connect.
-(:wear     v2, not now)
-reference/bosectl   gitignored clone of github.com/aaronsb/bosectl. Read-only reference.
+:bmap       pure Kotlin/JVM. Bose BMAP codec, stream parser, 6-model catalog, testFixtures (FakeBmapDevice).
+:sony       pure Kotlin/JVM. Sony MDR v1/v2 codec, stream parser, ACK/seq engine, testFixtures (FakeSonyDevice).
+:soundcore  pure Kotlin/JVM. Anker Soundcore codec, state/ANC/8-band EQ protocol, testFixtures (FakeSoundcoreDevice).
+:samsung    pure Kotlin/JVM. Samsung Galaxy Buds SPP/CRC16 codec & protocol, testFixtures (FakeSamsungDevice).
+:app        Android. Multi-brand RFCOMM connector & drivers, foreground service, state repository,
+            Compose UI, Quick Settings tile, ongoing notification, companion-device auto-connect.
+(:wear      v2, not now)
+reference/  gitignored clones of MIT protocol references (bosectl, SonyHeadphonesClient,
+            soundcorebridge, omarchy-headphones).
 ```
 
 ## Protocol facts (QC Ultra 2, codename "wolverine", PID 0x4082)
@@ -124,7 +126,7 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 **Known unknowns.** Settle these (in M0 unless noted) and record the answers in FINDINGS:
 1. Settled in M0: connect path (see Android rules and FINDINGS).
 2. Settled in M0: no gap between commands is needed; replies can arrive out of order.
-3. Does the device push unsolicited STATUS frames when you press its buttons, change mode on the headphones, or take them off? (Needs Baris's hands, so it's answered in H1, not M0. Until then, code must work whether it does or not.)
+3. Does the device push unsolicited STATUS frames when you press its buttons, change mode on the headphones, or take them off? (Needs physical interaction, so it's answered in H1, not M0. Until then, code must work whether it does or not.)
 4. Settled in M0: nothing arrives on channel 2 after connect until we ask.
 5. Settled in M0: firmware 10.12.12 differs from the 8.2.20 notes in [1.4] and [31.4] (see feature map).
 
@@ -158,7 +160,7 @@ Not supported on firmware 10.12.12 (M0 FINDINGS), so not in the map: [1.4] stand
 
 ## UX copy
 
-- Plain English, no protocol words in the UI. A line under a setting only when it tells the user something the name doesn't (what triggers it, what it costs, what a term means). Never one that restates the name, like "Turns noise cancelling on or off" (Baris, 2026-11-03).
+- Plain English, no protocol words in the UI. A line under a setting only when it tells the user something the name doesn't (what triggers it, what it costs, what a term means). Never one that restates the name, like "Turns noise cancelling on or off".
 - Use Bose's names: "Self Voice", not "sidetone". For spatial: Off / Still (sound stays put when you turn your head, = fixed-to-room) / Motion (sound moves with you, = fixed-to-head). Mapping is inferred from the protocol enum names; confirm by ear in M3.
 - Hide anything we can't explain confidently (e.g. Self Voice persistence flag).
 - Preset modes show as read-only with a short "Bose preset, can't be edited" note.

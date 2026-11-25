@@ -33,7 +33,7 @@ Built locally on an orphan branch `public` with `git commit-tree`. Nothing is re
 
 - **Body:** 2–4 lines per commit, saying what the milestone delivered. No archive PR numbers: they'd be dead links in public.
 - **Trailers:** none.
-- **Identity:** author and committer `Baris <3854431+Sargemck@users.noreply.github.com>`. That's already the only identity in the archive apart from GitHub's merge committer, which goes away.
+- **Identity:** author and committer `Sargemck <3854431+Sargemck@users.noreply.github.com>`. That's already the only identity in the archive apart from GitHub's merge committer, which goes away.
 - **Dates:** author date is the full timestamp of the milestone's last non-merge commit. For S0 and M7 that's the last first-parent commit. M4 uses its last device-run commit (`ce169ca`, 2026-11-04), not the merge-day screenshot-test fix, so the log is in date order. Committer date is the build time.
 
 **Redactions in commits 1–11 (expected):**
@@ -52,13 +52,13 @@ Built locally on an orphan branch `public` with `git commit-tree`. Nothing is re
   - the phone's adb serial
   - every full MAC from the raw S1 and M4 logs (headphones, phone, PCs, other paired devices), in colon form and in the logs' space-separated hex form
   - the paired-device names from the same logs: PCs, handheld, other phones, the headphones' real name, watch name
-  - Baris's personal email
+  - Sargemck's personal email
 - **What gets checked, in every commit of `public`:**
   1. `git grep -i -f patterns <commit>` on every tree. Expect 0 hits.
   2. Any full MAC shaped string, `([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}`, in every tree. Each hit is listed and must be a redacted or made-up value (e.g. `02:00:00:00:00:0x`, `XX:XX:…`).
   3. Emails: `git log --format='%ae %ce'`, plus every `@` address in every tree and message. Only the GitHub noreply address, and third-party addresses in vendored files like the Gradle wrapper licence.
   4. Files: no `keystore.properties`, `*.jks` or `*.keystore` in any tree (`git log --name-only`).
-  5. Device management: grep for management, policy and employer-related terms. Every hit is listed for Baris to judge.
+  5. Device management: grep for management, policy and employer-related terms. Every hit is listed for Sargemck to judge.
   6. Images: the 13 PNGs in `docs/images` are device screenshots, so I look at each by eye for status bars, names and notifications. The goldens and fastlane screenshots use demo data.
 - **If something turns up.** If a hit is in an intermediate tree only, that tree is redacted when its commit is built, and the diff proof notes it. Nothing is pushed until the scan is clean. The result section lists every check with its hit count.
 
@@ -97,7 +97,7 @@ Built locally on an orphan branch `public` with `git commit-tree`. Nothing is re
 2. `gh repo create Sargemck/practical_headphones --private --description "…"`, then `gh repo edit --add-topic …`.
 3. `git remote add origin https://github.com/Sargemck/practical_headphones.git`, then `git push origin public:main`. It's a new repo, so this is a normal push.
 4. Local setup: the old local `main` is renamed `archive-main`, and a new `main` tracks `origin/main`. The archive remote is kept. Work continues on `main`.
-5. Stays private until Baris says launch: `gh repo edit --visibility public` is his call.
+5. Stays private until Sargemck says launch: `gh repo edit --visibility public` is his call.
 
 ## 6. Result
 
@@ -121,7 +121,7 @@ f71db85 M7: release prep and review fixes                     2026-11-07T14:40
 
 - By day, the log is in date order.
 - Within 2026-11-04 it isn't: S1, M4 and M5 were finished in parallel that night, so their last work commits interleave (01:49, 01:44, 01:15).
-- One identity throughout: `Baris <3854431+Sargemck@users.noreply.github.com>` as author and committer. No trailers.
+- One identity throughout: `Sargemck <3854431+Sargemck@users.noreply.github.com>` as author and committer. No trailers.
 
 **Proof, commits 1–11 against their archive points** (`git diff --shortstat` and files):
 
@@ -184,7 +184,7 @@ Every added line in commits 1–11 is one of the §1 redactions (checked by grep
 - **Q1.** Commit 12 stays separate.
 - **Q2.** All plan file names lower case.
 - **Q3.** No review log. The PR threads stay in the private archive.
-- **Second round (Baris and reviewer):**
+- **Second round (Sargemck and reviewer):**
   - The README doesn't describe the project's process.
   - The CLAUDE.md clause is dropped in every commit.
   - M4 is dated by `ce169ca`.

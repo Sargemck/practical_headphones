@@ -24,6 +24,7 @@ import io.github.sargemck.practicalheadphones.link.ScreenMonitor
 import io.github.sargemck.practicalheadphones.link.SystemLinkMonitor
 import io.github.sargemck.practicalheadphones.state.FileLastKnownStore
 import io.github.sargemck.practicalheadphones.state.HeadphoneRepository
+import io.github.sargemck.practicalheadphones.widget.HeadphoneWidgetProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -46,6 +47,7 @@ import java.io.File
 class HeadphoneService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var repository: HeadphoneRepository
+    private lateinit var locator: HeadphonesLocator
     private lateinit var systemLink: SystemLinkMonitor
     private lateinit var screen: ScreenMonitor
 
@@ -57,16 +59,7 @@ class HeadphoneService : Service() {
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Headphones", NotificationManager.IMPORTANCE_LOW))
         startForeground(NOTIFICATION_ID, build(NotificationModel("Headphones", "Starting…", emptyList())), ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
 
-        val locator = HeadphonesLocator(this)
-        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
-        fun refreshDevicesAndCompanion() {
-            val devices = adapter?.let { runCatching { locator.listAll(it) }.getOrDefault(emptyList()) }.orEmpty()
-            repository.setAvailableDevices(devices)
-            val active = adapter?.let { runCatching { locator.find(it) }.getOrNull() }
-            val brand = active?.let { locator.brandOf(it) }
-            val (installed, appName) = BoseAppDetector.detectFor(this, brand)
-            repository.setBoseAppInstalled(installed, appName)
-        }
+        locator = HeadphonesLocator(this)
         repository = HeadphoneRepository(
             scope = scope,
             driverConnector = MultiBrandConnector(this, locator, BmapLog.frames, BmapLog::d),
@@ -94,6 +87,9 @@ class HeadphoneService : Service() {
         scope.launch {
             repository.state.map(NotificationModel::from).distinctUntilChanged().collect { manager.notify(NOTIFICATION_ID, build(it)) }
         }
+        scope.launch {
+            repository.state.collect { HeadphoneWidgetProvider.updateAll(this@HeadphoneService, it) }
+        }
         if (BuildConfig.DEBUG) scope.launch { repository.state.collect { BmapLog.d("STATE ${it.summary()}") } }
 
         val autoConnect = AutoConnect(this, BmapLog::d).also { it.observe() }
@@ -117,13 +113,24 @@ class HeadphoneService : Service() {
             ACTION_TOGGLE_ANC -> repository.toggleAnc()
             ACTION_RECONNECT -> repository.reconnect()
         }
-        repository.setBoseAppInstalled(BoseAppDetector.isInstalled(this))
+        refreshDevicesAndCompanion()
         // A restart from the background isn't allowed to go foreground; M6 handles auto-start.
         return START_NOT_STICKY
     }
 
+    private fun refreshDevicesAndCompanion() {
+        val adapter = getSystemService(BluetoothManager::class.java)?.adapter
+        val devices = adapter?.let { runCatching { locator.listAll(it) }.getOrDefault(emptyList()) }.orEmpty()
+        repository.setAvailableDevices(devices)
+        val active = adapter?.let { runCatching { locator.find(it) }.getOrNull() }
+        val brand = active?.let { locator.brandOf(it) }
+        val companion = BoseAppDetector.detectFor(this, brand)
+        repository.setBoseAppInstalled(companion.installed, companion.displayName, companion.packageName)
+    }
+
     override fun onDestroy() {
         AppGraph.controller.value = null
+        HeadphoneWidgetProvider.updateAll(this, null)
         systemLink.stop()
         screen.stop()
         scope.cancel()

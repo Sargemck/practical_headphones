@@ -110,11 +110,30 @@ class SonyFrameParser {
             }
             if (start > 0) buffer.subList(0, start).clear()
             val end = buffer.indexOf(SonyFrameCodec.TRL.toByte())
-            if (end < 0) break
+            if (end < 0) {
+                if (buffer.size > MAX_BUFFER_BYTES) {
+                    buffer.subList(0, buffer.size - MAX_BUFFER_BYTES).clear()
+                }
+                break
+            }
+            // Interior HDR (0x3E) bytes are always escaped (0x3D 0x2E), so any later 0x3E before
+            // TRL means the earlier 0x3E belonged to a truncated/corrupted frame.
+            var realStart = 0
+            for (i in 1 until end) {
+                if (buffer[i] == SonyFrameCodec.HDR.toByte()) realStart = i
+            }
+            if (realStart > 0) {
+                buffer.subList(0, realStart).clear()
+                continue
+            }
             val raw = ByteArray(end + 1) { buffer[it] }
             buffer.subList(0, end + 1).clear()
             SonyFrameCodec.decode(raw)?.let(out::add)
         }
         return out
+    }
+
+    private companion object {
+        const val MAX_BUFFER_BYTES = 4096
     }
 }

@@ -43,8 +43,11 @@ class FakeSoundcoreDevice(
     private fun handle(frame: SoundcoreFrame) {
         when (frame.cmdGroup to frame.cmdId) {
             SoundcoreProtocol.GROUP_STATE to SoundcoreProtocol.CMD_STATE_UPDATE -> {
-                val blob = ByteArray(80)
+                val blob = ByteArray(if (soundModeWidth == 4) 70 else 80)
                 blob[0] = batteryLevel.toByte()
+                "01.59".toByteArray(Charsets.US_ASCII).copyInto(blob, 2)
+                val smOffset = if (soundModeWidth == 4) 35 else 71
+                soundModeBytes.copyInto(blob, smOffset)
                 sendRx(SoundcoreProtocol.GROUP_STATE, SoundcoreProtocol.CMD_STATE_UPDATE, blob)
             }
             SoundcoreProtocol.GROUP_STATE to SoundcoreProtocol.CMD_BATTERY -> {

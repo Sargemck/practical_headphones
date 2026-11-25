@@ -13,6 +13,7 @@ import io.github.sargemck.practicalheadphones.bmap.Headphones
 import io.github.sargemck.practicalheadphones.driver.BoseDriver
 import io.github.sargemck.practicalheadphones.driver.DriverConnector
 import io.github.sargemck.practicalheadphones.driver.HeadphoneDriver
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -57,62 +58,61 @@ class RfcommConnector(
         }
         for (path in paths) {
             val started = System.nanoTime()
-            var opened: BluetoothSocket? = null
-            val socket = try {
-                open(device, path).also {
-                    opened = it
-                    withContext(Dispatchers.IO) { it.connect() }
+            val initFirst = guessed?.requiresInitPacket == true
+            tryConnectBosePath(device, scope, path, guessed, sendInit = initFirst)?.let { (conn, profile) ->
+                log("CONNECT $path ok (${profile.id}) in ${(System.nanoTime() - started) / 1_000_000} ms")
+                return BoseDriver(conn, scope, profile, log)
+            }
+            // Older Bose models (QC45, QC35) stay silent until GET [0.1] is sent; if the device was
+            // renamed so inferFromName missed it, BmapConnection closed the unresponsive socket on
+            // timeout, so try once on a fresh socket with GET [0.1] first.
+            if (!initFirst && (path == Path.Spp || path == Path.Channel(8))) {
+                tryConnectBosePath(device, scope, path, guessed, sendInit = true)?.let { (conn, profile) ->
+                    log("CONNECT $path+init ok (${profile.id}) in ${(System.nanoTime() - started) / 1_000_000} ms")
+                    return BoseDriver(conn, scope, profile, log)
                 }
-            } catch (e: Exception) {
-                runCatching { opened?.close() }
-                log("CONNECT $path failed: ${e.javaClass.simpleName} ${e.message}")
-                continue
             }
-            val connection = BmapConnection(RfcommTransport(socket), scope, logger)
-            val probe = probeBose(connection, guessed, path)
-            if (probe != null) {
-                log("CONNECT $path ok (${probe.id}) in ${(System.nanoTime() - started) / 1_000_000} ms")
-                return BoseDriver(connection, scope, probe, log)
-            }
-            connection.close()
         }
         throw IOException("no BMAP answer on SPP or channels 2, 8, 9")
     }
 
-    private suspend fun probeBose(
-        connection: BmapConnection,
-        guessed: io.github.sargemck.practicalheadphones.bmap.BoseProfile?,
+    private suspend fun tryConnectBosePath(
+        device: BluetoothDevice,
+        scope: CoroutineScope,
         path: Path,
-    ): io.github.sargemck.practicalheadphones.bmap.BoseProfile? {
-        val hp = Headphones(connection)
-        var usedInit = false
-        val battery = try {
-            if (guessed?.requiresInitPacket == true) {
-                runCatching { hp.initSession() }
-                usedInit = true
+        guessed: io.github.sargemck.practicalheadphones.bmap.BoseProfile?,
+        sendInit: Boolean,
+    ): Pair<BmapConnection, io.github.sargemck.practicalheadphones.bmap.BoseProfile>? {
+        var opened: BluetoothSocket? = null
+        val socket = try {
+            open(device, path).also {
+                opened = it
+                withContext(Dispatchers.IO) { it.connect() }
             }
+        } catch (e: CancellationException) {
+            runCatching { opened?.close() }
+            throw e
+        } catch (e: Exception) {
+            runCatching { opened?.close() }
+            log("CONNECT $path failed: ${e.javaClass.simpleName} ${e.message}")
+            return null
+        }
+        val connection = BmapConnection(RfcommTransport(socket), scope, logger)
+        val hp = Headphones(connection)
+        val battery = try {
+            if (sendInit) hp.initSession()
             hp.batteryStatus()
         } catch (e: BmapException) {
-            if (!usedInit) {
-                // Older Bose models (QC45, QC35) stay silent until GET [0.1] is sent.
-                try {
-                    hp.initSession()
-                    usedInit = true
-                    hp.batteryStatus()
-                } catch (e2: BmapException) {
-                    log("CONNECT $path no BMAP answer after init: ${e2.message}")
-                    return null
-                }
-            } else {
-                log("CONNECT $path no BMAP answer: ${e.message}")
-                return null
-            }
+            log("CONNECT $path (init=$sendInit) no BMAP answer: ${e.message}")
+            connection.close()
+            return null
         }
-        return BoseCatalog.refineFromWire(
+        val profile = BoseCatalog.refineFromWire(
             initial = guessed,
             batteryPayloadLength = if (battery.components.isNotEmpty()) 16 else 1,
-            usedInitPacket = usedInit,
+            usedInitPacket = sendInit,
         )
+        return connection to profile
     }
 
     private fun open(device: BluetoothDevice, path: Path): BluetoothSocket = when (path) {

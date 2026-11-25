@@ -15,13 +15,21 @@ data class NotificationModel(val title: String, val text: String, val actions: L
             if (state.link != LinkState.Connected) return NotificationModel(title, linkText(state.link), emptyList())
             val modes = state.modes.valueOrNull()
             val audio = state.audio.valueOrNull()
+            val discreteAnc = state.discreteAnc.valueOrNull()
+            val modeLabel = modes?.currentMode?.name
+                ?: discreteAnc?.let { anc -> anc.options.firstOrNull { it.id == anc.selectedId }?.label }
             val text = listOfNotNull(
                 state.battery.valueOrNull()?.let { "Battery $it%" },
-                modes?.currentMode?.name,
+                modeLabel,
             ).joinToString(" · ").ifEmpty { "Loading…" }
             val actions = buildList {
                 if (modes != null && nextFavourite(modes) != null) add(NotificationAction.NextMode)
-                if (audio != null) add(if (audio.anc) NotificationAction.NoiseCancellingOff else NotificationAction.NoiseCancellingOn)
+                if (audio != null) {
+                    add(if (audio.anc) NotificationAction.NoiseCancellingOff else NotificationAction.NoiseCancellingOn)
+                } else if (discreteAnc != null && discreteAnc.options.any { it.id.equals("OFF", ignoreCase = true) }) {
+                    val isOff = discreteAnc.selectedId.equals("OFF", ignoreCase = true)
+                    add(if (isOff) NotificationAction.NoiseCancellingOn else NotificationAction.NoiseCancellingOff)
+                }
             }
             return NotificationModel(title, text, actions)
         }

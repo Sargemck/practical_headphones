@@ -62,7 +62,8 @@ object SamsungProtocol {
         return SamsungStatus(
             leftBattery = pct(payload, 2),
             rightBattery = pct(payload, 3),
-            caseBattery = pct(payload, 7),
+            // Case reports 0 when closed / out of contact with the earbuds (galaxy-buds2 capture).
+            caseBattery = pct(payload, 7)?.takeIf { it > 0 },
             noiseMode = mode,
             eqPreset = eq,
         )

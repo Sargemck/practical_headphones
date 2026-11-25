@@ -8,7 +8,6 @@ import io.github.sargemck.practicalheadphones.samsung.SamsungConnection
 import io.github.sargemck.practicalheadphones.samsung.SamsungConnectionState
 import io.github.sargemck.practicalheadphones.samsung.SamsungEqPreset
 import io.github.sargemck.practicalheadphones.samsung.SamsungException
-import io.github.sargemck.practicalheadphones.samsung.SamsungFrame
 import io.github.sargemck.practicalheadphones.samsung.SamsungNoiseMode
 import io.github.sargemck.practicalheadphones.samsung.SamsungProtocol
 import io.github.sargemck.practicalheadphones.samsung.SamsungStatus
@@ -20,13 +19,14 @@ import io.github.sargemck.practicalheadphones.state.DiscreteAncState
 import io.github.sargemck.practicalheadphones.state.EqPresetChoice
 import io.github.sargemck.practicalheadphones.state.HeadphoneState
 import io.github.sargemck.practicalheadphones.state.Section
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transform
 
 /**
  * Adapts a Samsung Galaxy Buds [SamsungConnection] to [HeadphoneDriver].
@@ -61,7 +61,20 @@ class SamsungDriver(
         .stateIn(scope, SharingStarted.Eagerly, DriverState.Open)
 
     override val updates: Flow<Pair<SectionKey, (HeadphoneState) -> HeadphoneState>> =
-        connection.notifications.mapNotNull(::mapNotification)
+        connection.notifications.transform { frame ->
+            when (frame.msgId) {
+                SamsungProtocol.MSG_EXTENDED_STATUS_UPDATED -> {
+                    val status = SamsungProtocol.parseExtendedStatus(frame.payload) ?: return@transform
+                    emit(SectionKey.Battery to { applyBattery(it, status) })
+                    emit(SectionKey.DiscreteAnc to { it.copy(discreteAnc = Section.Loaded(toDiscreteAnc(status.noiseMode))) })
+                    emit(SectionKey.Eq to { it.copy(eq = Section.Loaded(emptyList()), selectedEqPreset = status.eqPreset.name) })
+                }
+                SamsungProtocol.MSG_NOISE_CONTROLS_UPDATE -> {
+                    val mode = SamsungProtocol.parseNoiseControlUpdate(frame.payload) ?: return@transform
+                    emit(SectionKey.DiscreteAnc to { s -> s.copy(discreteAnc = Section.Loaded(toDiscreteAnc(mode))) })
+                }
+            }
+        }
 
     override suspend fun initialLoad(apply: ((HeadphoneState) -> HeadphoneState) -> Unit) {
         apply {
@@ -72,6 +85,7 @@ class SamsungDriver(
                 firmware = Section.Unsupported,
                 modes = Section.Unsupported,
                 audio = Section.Unsupported,
+                discreteAnc = Section.Loading,
                 selfVoice = Section.Unsupported,
                 speakToChat = Section.Unsupported,
                 autoPlayPause = Section.Unsupported,
@@ -82,15 +96,20 @@ class SamsungDriver(
             )
         }
 
-        val status = runSamsung { buds.fetchExtendedStatus() }
-        apply { applyStatus(it, status) }
+        val status = readOptional { buds.fetchExtendedStatus() }
+        if (status != null) {
+            apply { applyStatus(it, status) }
+        } else {
+            val failed = Section.Failed("Couldn't read earbuds status")
+            apply { it.copy(battery = failed, discreteAnc = failed, eq = failed) }
+        }
     }
 
     override suspend fun retryFailed(
         current: () -> HeadphoneState,
         apply: ((HeadphoneState) -> HeadphoneState) -> Unit,
     ) {
-        val status = runCatching { buds.fetchExtendedStatus() }.getOrNull() ?: return
+        val status = readOptional { buds.fetchExtendedStatus() } ?: return
         apply { applyStatus(it, status) }
     }
 
@@ -112,38 +131,42 @@ class SamsungDriver(
         val preset = SamsungEqPreset.entries.firstOrNull { it.name.equals(presetId, ignoreCase = true) }
             ?: throw DriverException("Unknown Samsung EQ preset $presetId")
         buds.setEqualizer(preset)
-        listOf(EqBand(0, 0, 5, preset.code))
+        emptyList()
     }
 
     override fun close() = connection.close()
 
-    private fun applyStatus(state: HeadphoneState, status: SamsungStatus): HeadphoneState = state.copy(
+    private fun applyBattery(state: HeadphoneState, status: SamsungStatus): HeadphoneState = state.copy(
         battery = status.aggregateBattery?.let { Section.Loaded(it) } ?: Section.Unsupported,
         batteryParts = buildList {
             status.leftBattery?.let { add(BatteryPart("L", it)) }
             status.rightBattery?.let { add(BatteryPart("R", it)) }
             status.caseBattery?.let { add(BatteryPart("Case", it)) }
         },
-        discreteAnc = Section.Loaded(toDiscreteAnc(status.noiseMode)),
-        eq = Section.Loaded(listOf(EqBand(0, 0, 5, status.eqPreset.code))),
     )
 
-    private fun mapNotification(frame: SamsungFrame): Pair<SectionKey, (HeadphoneState) -> HeadphoneState>? {
-        return when (frame.msgId) {
-            SamsungProtocol.MSG_EXTENDED_STATUS_UPDATED -> {
-                val status = SamsungProtocol.parseExtendedStatus(frame.payload) ?: return null
-                SectionKey.Battery to { applyStatus(it, status) }
-            }
-            SamsungProtocol.MSG_NOISE_CONTROLS_UPDATE -> {
-                val mode = SamsungProtocol.parseNoiseControlUpdate(frame.payload) ?: return null
-                SectionKey.DiscreteAnc to { s -> s.copy(discreteAnc = Section.Loaded(toDiscreteAnc(mode))) }
-            }
-            else -> null
-        }
+    private fun applyStatus(state: HeadphoneState, status: SamsungStatus): HeadphoneState =
+        applyBattery(state, status).copy(
+            discreteAnc = Section.Loaded(toDiscreteAnc(status.noiseMode)),
+            eq = Section.Loaded(emptyList()),
+            selectedEqPreset = status.eqPreset.name,
+        )
+
+    private suspend fun <T> readOptional(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: SamsungException.Disconnected) {
+        throw DriverException.Disconnected(mapCloseReason(e.reason), e)
+    } catch (e: SamsungException) {
+        log("Samsung optional read failed: ${e.message}")
+        null
     }
 
     private inline fun <T> runSamsung(block: () -> T): T = try {
         block()
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: SamsungException.Disconnected) {
         throw DriverException.Disconnected(mapCloseReason(e.reason), e)
     } catch (e: SamsungException) {
@@ -160,7 +183,7 @@ class SamsungDriver(
 
     companion object {
         val SAMSUNG_PRESETS: List<EqPresetChoice> = SamsungEqPreset.entries.map {
-            EqPresetChoice(id = it.name, label = it.label, values = listOf(it.code))
+            EqPresetChoice(id = it.name, label = it.label)
         }
 
         fun toDiscreteAnc(mode: SamsungNoiseMode): DiscreteAncState = DiscreteAncState(

@@ -27,8 +27,10 @@ enum class SoundcoreEqPreset(val id: Int, val label: String, val bands: List<Int
     BASS_REDUCER(0x03, "Bass Reducer", listOf(-4, -3, -1, 0, 0, 0, 0, 0)),
     CLASSICAL(0x04, "Classical", listOf(3, 3, -2, -2, 0, 2, 3, 4)),
     PODCAST(0x05, "Podcast", listOf(-3, 2, 4, 4, 3, 2, 0, -2)),
-    TREBLE_BOOSTER(0x06, "Treble Booster", listOf(-2, -2, -2, -1, 1, 2, 3, 4)),
-    ROCK(0x0F, "Rock", listOf(-1, 1, 3, 3, 1, -1, -2, -3)),
+    FLAT(0x09, "Flat", listOf(-2, -2, -1, 0, 0, 0, -2, -2)),
+    POP(0x0F, "Pop", listOf(-1, 1, 3, 3, 1, -1, -2, -3)),
+    ROCK(0x11, "Rock", listOf(3, 2, -1, -1, 1, 3, 4, 5)),
+    TREBLE_BOOSTER(0x14, "Treble Booster", listOf(-2, -2, -2, -1, 1, 2, 2, 4)),
     CUSTOM(0xFE, "Custom", emptyList());
 
     companion object {
@@ -39,6 +41,13 @@ enum class SoundcoreEqPreset(val id: Int, val label: String, val bands: List<Int
 data class SoundcoreEqState(
     val presetId: Int,
     val bands: List<Int>,
+)
+
+data class SoundcoreStateSnapshot(
+    val batteryPercent: Int?,
+    val firmware: String?,
+    val soundMode: SoundcoreSoundMode?,
+    val eq: SoundcoreEqState?,
 )
 
 /**
@@ -103,6 +112,51 @@ object SoundcoreProtocol {
             ((raw - 120) / 10).coerceIn(-6, 6)
         }
         return SoundcoreEqState(presetId = presetId, bands = bands)
+    }
+
+    /**
+     * Parses the `01:01` state blob (`soundcorebridge/docs/protocol-map.md` & `omarchy-headphones/soundcore-bridge`):
+     * - byte 0: battery (0..9 -> 10..100%)
+     * - bytes 2..6: ASCII firmware (`"01.59"`) if printable
+     * - bytes 23..32: EQ preset + 8 bands (if valid `120 +/- 60` range)
+     * - sound mode block: 4B at offset 35 on 70B Q30 blob, 6B at offset 69 on Space One Pro (`b3062`),
+     *   or 6B at offset 71 on >=77B Space 2 / Space Q45 blobs.
+     */
+    fun parseStateBlob(payload: ByteArray, vendorUuid: String? = null): SoundcoreStateSnapshot {
+        val battery = parseBatteryPercent(payload)
+        val firmware = if (payload.size >= 7) {
+            val slice = payload.copyOfRange(2, 7)
+            if (slice.all { it in 0x2E..0x39 }) String(slice, Charsets.US_ASCII) else null
+        } else {
+            null
+        }
+        val eq = if (payload.size >= 33) {
+            val bandBytes = payload.copyOfRange(25, 33)
+            if (bandBytes.all { (it.toInt() and 0xFF) in 60..180 }) {
+                parseEq(byteArrayOf(payload[23], payload[24]) + bandBytes)
+            } else {
+                null
+            }
+        } else {
+            null
+        }
+        val suffix = vendorUuid?.lowercase()?.removePrefix(UUID_PREFIX).orEmpty()
+        val (offset, width) = when {
+            suffix == "b302a" || payload.size == 70 -> 35 to 4
+            suffix == "b3062" -> 69 to 6
+            else -> 71 to 6
+        }
+        val soundMode = if (payload.size >= offset + width) {
+            parseSoundMode(payload.copyOfRange(offset, offset + width))
+        } else {
+            null
+        }
+        return SoundcoreStateSnapshot(
+            batteryPercent = battery,
+            firmware = firmware,
+            soundMode = soundMode,
+            eq = eq,
+        )
     }
 
     fun buildEqSet(presetId: Int, bands: List<Int>): ByteArray {

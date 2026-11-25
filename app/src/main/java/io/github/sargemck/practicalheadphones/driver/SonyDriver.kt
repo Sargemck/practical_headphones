@@ -22,6 +22,7 @@ import io.github.sargemck.practicalheadphones.state.DiscreteAncState
 import io.github.sargemck.practicalheadphones.state.EqPresetChoice
 import io.github.sargemck.practicalheadphones.state.HeadphoneState
 import io.github.sargemck.practicalheadphones.state.Section
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -40,6 +41,7 @@ class SonyDriver(
     private val log: (String) -> Unit = {},
 ) : HeadphoneDriver {
     private val sony = SonyHeadphones(connection)
+    private val preferEarbuds = isEarbudsName(deviceName)
 
     @Volatile private var ancState: SonyAncState? = null
     @Volatile private var eqState: SonyEqState? = null
@@ -88,7 +90,7 @@ class SonyDriver(
 
         val isV2 = runSony { sony.handshake() }
 
-        val battery = runCatching { sony.getBattery() }.getOrNull()
+        val battery = readOptional { sony.getBattery(preferEarbuds) }
         apply { s ->
             if (battery != null) {
                 s.copy(battery = Section.Loaded(battery.percent), batteryParts = batteryParts(battery))
@@ -97,19 +99,22 @@ class SonyDriver(
             }
         }
 
-        val anc = runCatching { sony.probeNcAsm(preferV2 = isV2) }.getOrNull()
+        val anc = readOptional { sony.probeNcAsm(preferV2 = isV2) }
         ancState = anc
         apply { s ->
             s.copy(discreteAnc = anc?.let { Section.Loaded(toDiscreteAnc(it)) } ?: Section.Unsupported)
         }
 
-        val eq = runCatching { sony.getEq() }.getOrNull()
+        val eq = readOptional { sony.getEq() }
         eqState = eq
         apply { s ->
-            s.copy(eq = eq?.let { Section.Loaded(toEqBands(it)) } ?: Section.Unsupported)
+            s.copy(
+                eq = eq?.let { Section.Loaded(toEqBands(it)) } ?: Section.Unsupported,
+                selectedEqPreset = eq?.preset?.takeIf { it != SonyEqPreset.CUSTOM }?.name,
+            )
         }
 
-        val stc = runCatching { sony.getSpeakToChat() }.getOrNull()
+        val stc = readOptional { sony.getSpeakToChat() }
         apply { s ->
             s.copy(speakToChat = stc?.let { Section.Loaded(it) } ?: Section.Unsupported)
         }
@@ -120,7 +125,7 @@ class SonyDriver(
         apply: ((HeadphoneState) -> HeadphoneState) -> Unit,
     ) {
         if (current().battery is Section.Failed) {
-            val b = runCatching { sony.getBattery() }.getOrNull()
+            val b = readOptional { sony.getBattery(preferEarbuds) }
             if (b != null) {
                 apply { it.copy(battery = Section.Loaded(b.percent), batteryParts = batteryParts(b)) }
             }
@@ -133,7 +138,7 @@ class SonyDriver(
     ) {
         if (battery) {
             guarded(SectionKey.Battery) {
-                val b = runCatching { sony.getBattery() }.getOrNull() ?: return@guarded null
+                val b = readOptional { sony.getBattery(preferEarbuds) } ?: return@guarded null
                 { s -> s.copy(battery = Section.Loaded(b.percent), batteryParts = batteryParts(b)) }
             }
         }
@@ -209,7 +214,12 @@ class SonyDriver(
         }
         SonyProtocol.parseEq(p)?.let { eq ->
             eqState = eq
-            return SectionKey.Eq to { s -> s.copy(eq = Section.Loaded(toEqBands(eq))) }
+            return SectionKey.Eq to { s ->
+                s.copy(
+                    eq = Section.Loaded(toEqBands(eq)),
+                    selectedEqPreset = eq.preset.takeIf { it != SonyEqPreset.CUSTOM }?.name,
+                )
+            }
         }
         SonyProtocol.parseSpeakToChat(p)?.let { on ->
             return SectionKey.SpeakToChat to { s -> s.copy(speakToChat = Section.Loaded(on)) }
@@ -217,8 +227,21 @@ class SonyDriver(
         return null
     }
 
+    private suspend fun <T> readOptional(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: SonyException.Disconnected) {
+        throw DriverException.Disconnected(mapCloseReason(e.reason), e)
+    } catch (e: SonyException) {
+        log("Sony optional read failed: ${e.message}")
+        null
+    }
+
     private inline fun <T> runSony(block: () -> T): T = try {
         block()
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: SonyException.Disconnected) {
         throw DriverException.Disconnected(mapCloseReason(e.reason), e)
     } catch (e: SonyException) {
@@ -258,7 +281,12 @@ class SonyDriver(
         fun batteryParts(b: SonyBattery): List<BatteryPart> = buildList {
             b.left?.let { add(BatteryPart("L", it)) }
             b.right?.let { add(BatteryPart("R", it)) }
-            b.cradle?.let { add(BatteryPart("Case", it)) }
+            b.cradle?.takeIf { it > 0 }?.let { add(BatteryPart("Case", it)) }
+        }
+
+        private fun isEarbudsName(name: String): Boolean {
+            val n = name.lowercase()
+            return "wf-" in n || "linkbuds" in n || "buds" in n
         }
     }
 }

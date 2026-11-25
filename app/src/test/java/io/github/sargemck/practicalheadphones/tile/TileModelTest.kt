@@ -4,6 +4,8 @@ import io.github.sargemck.practicalheadphones.bmap.Favourites
 import io.github.sargemck.practicalheadphones.bmap.ModeConfig
 import io.github.sargemck.practicalheadphones.bmap.Spatial
 import io.github.sargemck.practicalheadphones.service.NotificationModel
+import io.github.sargemck.practicalheadphones.state.DiscreteAncOption
+import io.github.sargemck.practicalheadphones.state.DiscreteAncState
 import io.github.sargemck.practicalheadphones.state.HeadphoneState
 import io.github.sargemck.practicalheadphones.state.LinkState
 import io.github.sargemck.practicalheadphones.state.ModesSection
@@ -54,5 +56,24 @@ class TileModelTest {
             val model = TileModel.from(connected.copy(link = link))
             assertEquals(TileModel(TileModel.Status.Unavailable, "Headphones", NotificationModel.linkText(link), null), model, link.name)
         }
+    }
+
+    @Test
+    fun `discrete ANC headphones cycle through noise control options`() {
+        val sony = HeadphoneState(
+            link = LinkState.Connected,
+            modes = Section.Unsupported,
+            discreteAnc = Section.Loaded(
+                DiscreteAncState(
+                    options = listOf(
+                        DiscreteAncOption("ANC", "Noise cancelling"),
+                        DiscreteAncOption("AMBIENT", "Ambient sound"),
+                        DiscreteAncOption("OFF", "Off"),
+                    ),
+                    selectedId = "ANC",
+                ),
+            ),
+        )
+        assertEquals(TileModel(TileModel.Status.Active, "Noise cancelling", "Next: Ambient sound", 1), TileModel.from(sony))
     }
 }

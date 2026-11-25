@@ -3,9 +3,24 @@ package io.github.sargemck.practicalheadphones.soundcore
 import kotlin.time.Duration.Companion.milliseconds
 
 class SoundcoreHeadphones(private val connection: SoundcoreConnection) {
-    /** Reads full state blob `01:01` (used as handshake & battery fallback). */
-    suspend fun getState(): ByteArray =
-        connection.request(SoundcoreProtocol.GROUP_STATE, SoundcoreProtocol.CMD_STATE_UPDATE).payload
+    /**
+     * Reads full state blob `01:01` (used as handshake + fallback source for battery, firmware,
+     * sound mode, and EQ). Retries once if the device answers with an empty ack (`protocol-map.md`).
+     */
+    suspend fun getState(): ByteArray {
+        repeat(2) { attempt ->
+            try {
+                val frame = connection.request(SoundcoreProtocol.GROUP_STATE, SoundcoreProtocol.CMD_STATE_UPDATE, timeout = 2000.milliseconds)
+                if (frame.payload.isNotEmpty() || attempt == 1) return frame.payload
+            } catch (e: SoundcoreException.Timeout) {
+                if (attempt == 1) throw e
+            }
+        }
+        return ByteArray(0)
+    }
+
+    suspend fun getStateSnapshot(vendorUuid: String? = null): SoundcoreStateSnapshot =
+        SoundcoreProtocol.parseStateBlob(getState(), vendorUuid)
 
     /** Reads battery via `01:03`, falling back to byte 0 of `01:01`. */
     suspend fun getBattery(): Int {

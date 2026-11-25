@@ -140,8 +140,9 @@ class Headphones(
 
     private suspend fun writeMode(write: ModeConfigWrite) {
         val payload = when (profile.modeLayout) {
+            ModeLayout.V48_40 -> Builders.modeConfig(write)
             ModeLayout.V47_39 -> Builders.modeConfig39(write)
-            else -> Builders.modeConfig(write)
+            ModeLayout.READ_ONLY_48, ModeLayout.NONE -> throw BmapException.Unsupported(QcUltra2.modeConfig)
         }
         setget(QcUltra2.modeConfig, payload)
     }

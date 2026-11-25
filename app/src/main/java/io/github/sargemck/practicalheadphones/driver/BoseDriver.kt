@@ -70,6 +70,7 @@ class BoseDriver(
         canPair = profile.supportsPairingMode,
         canPowerOff = profile.supportsPowerOff,
         canEditModes = profile.modeLayout == ModeLayout.V48_40 || profile.modeLayout == ModeLayout.V47_39,
+        supportsModeAncToggle = profile.modeLayout == ModeLayout.V48_40,
         editableSlots = profile.editableSlots,
         presetSlots = profile.presetSlots,
         presetNames = profile.presetNames,
@@ -90,19 +91,30 @@ class BoseDriver(
     override suspend fun initialLoad(apply: ((HeadphoneState) -> HeadphoneState) -> Unit) {
         apply { it.copy(deviceBadge = badge, capabilities = capabilities) }
 
+        var modesUnsupported = false
         if (profile.modeLayout == ModeLayout.NONE) {
+            modesUnsupported = true
             apply { it.copy(modes = Section.Unsupported, audio = Section.Unsupported) }
         } else {
-            loadModes(apply)
+            modesUnsupported = !loadModes(apply)
         }
 
-        if (profile.supportsAnr) {
+        if (profile.supportsAnr || modesUnsupported) {
             val anr = attempt { headphones.anr() }
+            if (anr is Section.Loaded && !profile.supportsAnr) {
+                // Renamed QC35 / QC35 II discovered via wire capability fallback.
+                apply {
+                    it.copy(
+                        deviceBadge = DeviceBadge("Bose", "QC35", experimental = true),
+                        capabilities = capabilities.copy(canPowerOff = false, canEditModes = false),
+                    )
+                }
+            }
             apply { s ->
                 s.copy(
                     discreteAnc = when (anr) {
                         is Section.Loaded -> Section.Loaded(anrState(anr.value))
-                        is Section.Failed -> anr
+                        is Section.Failed -> if (profile.supportsAnr) anr else Section.Unsupported
                         Section.Loading -> Section.Loading
                         Section.Unsupported -> Section.Unsupported
                     },
@@ -327,7 +339,8 @@ class BoseDriver(
 
     override fun close() = connection.close()
 
-    private suspend fun loadModes(apply: ((HeadphoneState) -> HeadphoneState) -> Unit) {
+    /** Returns false if [31.1] is unsupported by the firmware (e.g. QC35). */
+    private suspend fun loadModes(apply: ((HeadphoneState) -> HeadphoneState) -> Unit): Boolean {
         val snapshot = attempt { headphones.allModes() }
         if (snapshot !is Section.Loaded) {
             apply {
@@ -336,9 +349,10 @@ class BoseDriver(
                     audio = if (profile.supportsLiveAudioSettings) snapshot.cast() else Section.Unsupported,
                 )
             }
-            return
+            return snapshot !is Section.Unsupported
         }
         applyModes(snapshot.value, apply)
+        return true
     }
 
     private suspend fun applyModes(value: ModesSnapshot, apply: ((HeadphoneState) -> HeadphoneState) -> Unit) {

@@ -98,12 +98,12 @@ object BoseCatalog {
         supportsLiveAudioSettings = false,
         supportsAnr = false,
         supportsEq = true,
-        supportsSelfVoice = true,
-        supportsMultipoint = true,
+        supportsSelfVoice = false,
+        supportsMultipoint = false,
         supportsAutoPlayPause = false,
         supportsAutoAnswer = false,
         supportsPairingMode = true,
-        supportsPowerOff = true,
+        supportsPowerOff = false,
         multiComponentBattery = false,
     )
 

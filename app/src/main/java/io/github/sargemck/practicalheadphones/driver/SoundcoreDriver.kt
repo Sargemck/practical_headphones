@@ -20,6 +20,7 @@ import io.github.sargemck.practicalheadphones.state.DiscreteAncState
 import io.github.sargemck.practicalheadphones.state.EqPresetChoice
 import io.github.sargemck.practicalheadphones.state.HeadphoneState
 import io.github.sargemck.practicalheadphones.state.Section
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -35,6 +36,7 @@ class SoundcoreDriver(
     private val connection: SoundcoreConnection,
     scope: CoroutineScope,
     private val deviceName: String,
+    private val vendorUuid: String? = null,
     private val log: (String) -> Unit = {},
 ) : HeadphoneDriver {
     private val sc = SoundcoreHeadphones(connection)
@@ -85,21 +87,29 @@ class SoundcoreDriver(
             )
         }
 
-        val battery = runCatching { sc.getBattery() }.getOrNull()
+        val snapshot = readOptional { sc.getStateSnapshot(vendorUuid) }
+        if (snapshot?.firmware != null) {
+            apply { it.copy(firmware = Section.Loaded(snapshot.firmware!!)) }
+        }
+
+        val battery = readOptional { sc.getBattery() } ?: snapshot?.batteryPercent
         apply { s ->
             s.copy(battery = battery?.let { Section.Loaded(it) } ?: Section.Failed("Couldn't read battery"))
         }
 
-        val mode = runCatching { sc.getSoundMode() }.getOrNull()
+        val mode = readOptional { sc.getSoundMode() } ?: snapshot?.soundMode
         soundMode = mode
         apply { s ->
             s.copy(discreteAnc = mode?.let { Section.Loaded(toDiscreteAnc(it.mode)) } ?: Section.Unsupported)
         }
 
-        val eq = runCatching { sc.getEq() }.getOrNull()
+        val eq = readOptional { sc.getEq() } ?: snapshot?.eq
         eqState = eq
         apply { s ->
-            s.copy(eq = eq?.let { Section.Loaded(toEqBands(it)) } ?: Section.Unsupported)
+            s.copy(
+                eq = eq?.let { Section.Loaded(toEqBands(it)) } ?: Section.Unsupported,
+                selectedEqPreset = eq?.let { presetName(it.presetId) },
+            )
         }
     }
 
@@ -108,7 +118,7 @@ class SoundcoreDriver(
         apply: ((HeadphoneState) -> HeadphoneState) -> Unit,
     ) {
         if (current().battery is Section.Failed) {
-            runCatching { sc.getBattery() }.getOrNull()?.let { pct ->
+            readOptional { sc.getBattery() }?.let { pct ->
                 apply { it.copy(battery = Section.Loaded(pct)) }
             }
         }
@@ -120,7 +130,7 @@ class SoundcoreDriver(
     ) {
         if (battery) {
             guarded(SectionKey.Battery) {
-                val pct = runCatching { sc.getBattery() }.getOrNull() ?: return@guarded null
+                val pct = readOptional { sc.getBattery() } ?: return@guarded null
                 { s -> s.copy(battery = Section.Loaded(pct)) }
             }
         }
@@ -163,7 +173,12 @@ class SoundcoreDriver(
             SoundcoreProtocol.GROUP_EQ to SoundcoreProtocol.CMD_EQ_GET -> {
                 val parsed = SoundcoreProtocol.parseEq(frame.payload) ?: return null
                 eqState = parsed
-                SectionKey.Eq to { s -> s.copy(eq = Section.Loaded(toEqBands(parsed))) }
+                SectionKey.Eq to { s ->
+                    s.copy(
+                        eq = Section.Loaded(toEqBands(parsed)),
+                        selectedEqPreset = presetName(parsed.presetId),
+                    )
+                }
             }
             SoundcoreProtocol.GROUP_STATE to SoundcoreProtocol.CMD_BATTERY -> {
                 val pct = SoundcoreProtocol.parseBatteryPercent(frame.payload) ?: return null
@@ -173,8 +188,21 @@ class SoundcoreDriver(
         }
     }
 
+    private suspend fun <T> readOptional(block: suspend () -> T): T? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: SoundcoreException.Disconnected) {
+        throw DriverException.Disconnected(mapCloseReason(e.reason), e)
+    } catch (e: SoundcoreException) {
+        log("Soundcore optional read failed: ${e.message}")
+        null
+    }
+
     private inline fun <T> runSc(block: () -> T): T = try {
         block()
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: SoundcoreException.Disconnected) {
         throw DriverException.Disconnected(mapCloseReason(e.reason), e)
     } catch (e: SoundcoreException) {
@@ -205,5 +233,8 @@ class SoundcoreDriver(
 
         fun toEqBands(eq: SoundcoreEqState): List<EqBand> =
             eq.bands.mapIndexed { i, v -> EqBand(bandId = i, min = -6, max = 6, current = v) }
+
+        fun presetName(presetId: Int): String? =
+            SoundcoreEqPreset.fromId(presetId)?.takeIf { it != SoundcoreEqPreset.CUSTOM }?.name
     }
 }

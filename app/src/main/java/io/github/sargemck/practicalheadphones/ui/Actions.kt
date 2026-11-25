@@ -37,6 +37,7 @@ data class Actions(
     val setSpeakToChat: (Boolean) -> Unit = {},
     val setEqPreset: (String) -> Unit = {},
     val selectDevice: (String) -> Unit = {},
+    val copyDiagnostics: () -> Unit = {},
 ) {
     companion object {
         /** Headphone actions from [controller]; the Android ones come from the activity. */

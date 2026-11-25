@@ -21,8 +21,8 @@ android {
         applicationId = "io.github.sargemck.practicalheadphones"
         minSdk = 31
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -80,6 +80,8 @@ dependencies {
     implementation(project(":sony"))
     implementation(project(":soundcore"))
     implementation(project(":samsung"))
+    implementation(project(":nothing"))
+    implementation(project(":jbl"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.activity.compose)
@@ -93,6 +95,8 @@ dependencies {
     testImplementation(testFixtures(project(":sony")))
     testImplementation(testFixtures(project(":soundcore")))
     testImplementation(testFixtures(project(":samsung")))
+    testImplementation(testFixtures(project(":nothing")))
+    testImplementation(testFixtures(project(":jbl")))
     testImplementation(libs.androidx.test.ext.junit)
     testImplementation(libs.androidx.compose.ui.test.junit4)
     // Robolectric brings espresso 3.5.1, which calls InputManager.getInstance(), gone in SDK 37.
@@ -109,6 +113,8 @@ dependencies {
     debugImplementation(testFixtures(project(":sony")))
     debugImplementation(testFixtures(project(":soundcore")))
     debugImplementation(testFixtures(project(":samsung")))
+    debugImplementation(testFixtures(project(":nothing")))
+    debugImplementation(testFixtures(project(":jbl")))
 
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.ext.junit)

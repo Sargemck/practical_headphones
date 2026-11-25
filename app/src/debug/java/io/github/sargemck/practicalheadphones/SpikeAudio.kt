@@ -45,7 +45,7 @@ object SpikeAudio {
         track = null
     }
 
-    /** A notification with the default sound, like the work email in Baris's report. */
+    /** Posts a notification with the default notification sound to test multipoint audio interruption. */
     fun notify(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingHorizontal="14dp"
+    android:paddingVertical="10dp">
+
+    <ImageView
+        android:id="@+id/widget_icon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_headphones"
+        android:tint="@color/widget_on_surface" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="12dp"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/tile_label"
+            android:textColor="@color/widget_on_surface"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_subtitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="@string/widget_default_subtitle"
+            android:textColor="@color/widget_on_surface_variant"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_btn_primary"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/widget_pill"
+        android:gravity="center"
+        android:paddingHorizontal="12dp"
+        android:text="@string/widget_action_mode"
+        android:textColor="@color/widget_on_pill"
+        android:textSize="12sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_btn_secondary"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/widget_pill"
+        android:gravity="center"
+        android:paddingHorizontal="12dp"
+        android:text="@string/widget_action_anc"
+        android:textColor="@color/widget_on_pill"
+        android:textSize="12sp"
+        android:textStyle="bold" />
+</LinearLayout>

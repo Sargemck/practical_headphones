@@ -60,7 +60,11 @@ fun ModeEditorContent(state: HeadphoneState, slot: Int?, actions: Actions, paddi
     if (slot != null && modes != null && mode == null) LaunchedEffect(Unit) { close() }
 
     val settings = ProfileSettings(cnc, spatial, wind, anc)
-    val problem = if (modes == null) NameProblem.Blank else Profiles.nameProblem(name, modes.modes, except = slot)
+    val problem = if (modes == null) {
+        NameProblem.Blank
+    } else {
+        Profiles.nameProblem(name, modes.modes, except = slot, presetNames = state.capabilities.presetNames)
+    }
     val error = modeNameError(problem)
     val changed = mode == null || name.trim() != mode.name.trim() || settings != start
     val current = mode != null && modes?.current == mode.index
@@ -93,7 +97,9 @@ fun ModeEditorContent(state: HeadphoneState, slot: Int?, actions: Actions, paddi
         SubHeading("Noise control")
         NoiseSlider(cnc, "editor-noise-slider") { cnc = it }
         SwitchRow("Wind Block", "Cuts wind noise outdoors.", wind, "editor-wind-block") { wind = it }
-        SwitchRow("Noise cancelling", null, anc, "editor-noise-cancelling") { anc = it }
+        if (state.capabilities.supportsModeAncToggle) {
+            SwitchRow("Noise cancelling", null, anc, "editor-noise-cancelling") { anc = it }
+        }
         SubHeading("Spatial audio")
         ChoiceChips(spatialOptions.map { it.first to it.second }, spatial, "editor-spatial") { spatial = it }
         spatialOptions.first { it.second == spatial }.third?.let { Description(it, Pad) }

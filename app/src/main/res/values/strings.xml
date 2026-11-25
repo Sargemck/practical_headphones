@@ -2,4 +2,8 @@
 <resources>
     <string name="app_name">Practical Headphones</string>
     <string name="tile_label">Headphones</string>
+    <string name="widget_description">Battery, active listening mode, and quick mode or ANC controls.</string>
+    <string name="widget_default_subtitle">Tap to open</string>
+    <string name="widget_action_mode">Mode</string>
+    <string name="widget_action_anc">ANC</string>
 </resources>

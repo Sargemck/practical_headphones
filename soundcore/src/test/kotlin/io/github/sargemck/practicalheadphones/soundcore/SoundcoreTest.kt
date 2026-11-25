@@ -27,6 +27,10 @@ class SoundcoreTest {
         val out = mutableListOf<SoundcoreFrame>()
         for (b in (byteArrayOf(0x11, 0x22) + raw)) out += parser.feed(byteArrayOf(b))
         assertEquals(listOf(decoded), out)
+
+        // Corrupt prefix with bad checksum before a valid frame must resync cleanly
+        val falsePrefix = SoundcoreFrameCodec.RX_PREFIX + byteArrayOf(0x06, 0x01, 0x0C, 0x00)
+        assertEquals(listOf(decoded), parser.feed(falsePrefix + raw))
     }
 
     @Test

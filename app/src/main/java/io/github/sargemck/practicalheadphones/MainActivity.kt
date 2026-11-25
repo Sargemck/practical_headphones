@@ -3,6 +3,8 @@ package io.github.sargemck.practicalheadphones
 import android.Manifest
 import android.app.StatusBarManager
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -20,11 +22,13 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.sargemck.practicalheadphones.link.AutoConnect
 import io.github.sargemck.practicalheadphones.link.BmapLog
 import io.github.sargemck.practicalheadphones.link.BoseAppDetector
 import io.github.sargemck.practicalheadphones.service.HeadphoneService
+import io.github.sargemck.practicalheadphones.state.DiagnosticReport
 import io.github.sargemck.practicalheadphones.state.HeadphoneController
 import io.github.sargemck.practicalheadphones.state.HeadphoneState
 import io.github.sargemck.practicalheadphones.tile.ModeTileService
@@ -35,6 +39,7 @@ import io.github.sargemck.practicalheadphones.ui.Permission
 import io.github.sargemck.practicalheadphones.ui.Permissions
 import io.github.sargemck.practicalheadphones.ui.PhoneFeatures
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
@@ -136,7 +141,8 @@ class MainActivity : ComponentActivity() {
         val android = Actions(
             openBluetoothSettings = { open(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) },
             openBoseAppSettings = {
-                open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", BoseAppDetector.PACKAGE, null)))
+                val pkg = source.value?.state?.value?.companionAppPackage ?: BoseAppDetector.PACKAGE
+                open(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", pkg, null)))
             },
             openUrl = { open(Intent(Intent.ACTION_VIEW, Uri.parse(it))) },
             requestBluetooth = { permissions.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT)) },
@@ -159,11 +165,19 @@ class MainActivity : ComponentActivity() {
             val permissions by permissionState.collectAsStateWithLifecycle()
             val phone by phoneState.collectAsStateWithLifecycle()
             val snackbar = remember { SnackbarHostState() }
+            val uiScope = rememberCoroutineScope()
+            val copyReport: () -> Unit = {
+                val report = DiagnosticReport.build(state, BuildConfig.VERSION_NAME, Build.VERSION.SDK_INT)
+                getSystemService(ClipboardManager::class.java)
+                    ?.setPrimaryClip(ClipData.newPlainText("Practical Headphones diagnostics", report))
+                uiScope.launch { snackbar.showSnackbar("Diagnostic report copied (no personal data)") }
+            }
+            val baseActions = android.copy(copyDiagnostics = copyReport)
             LaunchedEffect(controller) { controller?.messages?.collect { snackbar.showSnackbar(it.text) } }
             AppTheme {
                 HeadphonesApp(
                     state,
-                    controller?.let { Actions.of(it, android) } ?: android,
+                    controller?.let { Actions.of(it, baseActions) } ?: baseActions,
                     BuildConfig.VERSION_NAME,
                     snackbar,
                     permissions = demoPermissions ?: permissions,

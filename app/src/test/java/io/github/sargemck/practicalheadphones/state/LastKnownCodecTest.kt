@@ -26,6 +26,31 @@ class LastKnownCodecTest {
         assertNull(LastKnownCodec.decode(""))
         assertNull(LastKnownCodec.decode("v=99\nname=x\n"))
         assertNull(LastKnownCodec.decode("v=2\naudio=not|numbers\n"))
+        assertNull(LastKnownCodec.decode("v=3\naudio=not|numbers\n"))
+    }
+
+    @Test
+    fun `multi-brand unsupported sections capabilities and preset selection round-trip`() {
+        val samsung = HeadphoneState(
+            deviceBadge = DeviceBadge("Samsung", "Galaxy Buds2 | Pro", experimental = true),
+            capabilities = Capabilities(canRename = false, canPair = false, canPowerOff = false, canEditModes = false, editableSlots = IntRange.EMPTY, presetSlots = IntRange.EMPTY, presetNames = emptyList()),
+            name = Section.Loaded("Galaxy Buds2 Pro"),
+            firmware = Section.Unsupported,
+            modes = Section.Unsupported,
+            audio = Section.Unsupported,
+            discreteAnc = Section.Loaded(DiscreteAncState(listOf(DiscreteAncOption("ANC", "Noise cancelling")), "ANC")),
+            eq = Section.Loaded(emptyList()),
+            selectedEqPreset = "DYNAMIC",
+            eqPresets = listOf(EqPresetChoice("NORMAL", "Normal"), EqPresetChoice("DYNAMIC", "Dynamic")),
+            eqBandLabels = emptyList(),
+            selfVoice = Section.Unsupported,
+            speakToChat = Section.Unsupported,
+            autoPlayPause = Section.Unsupported,
+            autoAnswer = Section.Unsupported,
+            multipoint = Section.Unsupported,
+        )
+        val decoded = LastKnownCodec.decode(LastKnownCodec.encode(samsung))!!
+        assertEquals(samsung.copy(deviceBadge = DeviceBadge("Samsung", "Galaxy Buds2   Pro", experimental = true)), decoded)
     }
 
     @Test

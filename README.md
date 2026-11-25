@@ -2,9 +2,11 @@
 
 [![Check](https://github.com/Sargemck/practical_headphones/actions/workflows/check.yml/badge.svg)](https://github.com/Sargemck/practical_headphones/actions/workflows/check.yml)
 
-Practical Headphones is an Android app for the Bose QuietComfort Ultra Headphones (2nd Gen). It switches modes, sets noise control, the equaliser and call settings, and builds your own modes, all directly over Bluetooth, so you don't need the Bose app or an account. A Quick Settings tile and an ongoing notification put the common controls one tap away, and with auto-connect the app is ready as soon as the headphones connect.
+Practical Headphones is a lightweight, zero-permission-creep Android app for controlling Bluetooth headphones directly over Classic Bluetooth (RFCOMM) and BLE GATT — no vendor account, no cloud sync, no background telemetry, and no `INTERNET` permission. Built and hardware-verified for the **Bose QuietComfort Ultra Headphones (2nd Gen)**, with experimental multi-brand support across **Bose**, **Sony**, **Anker Soundcore**, **Samsung Galaxy Buds**, **Nothing / CMF**, and **JBL**.
 
-Not affiliated with Bose. Bose and QuietComfort are trademarks of Bose Corporation.
+A Material You home screen widget, a Quick Settings tile, and an ongoing notification keep everyday controls one tap away, and optional Companion Device auto-connect makes the app ready the moment your headphones connect.
+
+Not affiliated with Bose, Sony, Anker/Soundcore, Samsung, Nothing, or HARMAN/JBL. Bose and QuietComfort are trademarks of Bose Corporation. Sony is a trademark of Sony Group Corporation. Soundcore is a trademark of Anker Innovations Limited. Samsung and Galaxy Buds are trademarks of Samsung Electronics Co., Ltd. Nothing and CMF are trademarks of Nothing Technology Limited. JBL is a trademark of HARMAN International Industries, Incorporated.
 
 | Main screen | All modes | New mode |
 |---|---|---|
@@ -12,18 +14,14 @@ Not affiliated with Bose. Bose and QuietComfort are trademarks of Bose Corporati
 
 ## Features
 
-- **Modes:**
-  - switch modes
-  - choose which ones the headphones' button cycles through
-  - create, edit and delete custom modes (a new mode starts from what you're hearing)
-- **Noise control:** how much outside sound gets through, Wind Block, noise cancelling, and spatial audio (Off, Still, Motion).
-- **Equaliser:** presets, or bass, mid and treble.
-- **Calls:** Self Voice and auto answer.
-- **Headphones:** auto play/pause, rename, pairing mode and power off. Shows battery and multipoint.
-- **Quick Settings tile:** shows the current mode. A tap goes to the next starred mode.
-- **Notification:** battery, current mode, next mode, noise cancelling on/off.
-- **Auto-connect:** the app starts when the headphones connect.
-- **While the headphones are away:** the last settings read from them stay on screen, dimmed.
+- **Modes (Bose):** switch presets, pick which modes the headphone button cycles through, and create, edit, or delete custom modes (new modes start from what you're currently hearing).
+- **Noise control:** continuous 0–10 noise control, Wind Block, and spatial audio (Off, Still, Motion) on Bose Ultra models; discrete ANC / Ambient / Off modes, Ambient Sound slider, and Focus on Voice where supported.
+- **Equaliser:** presets plus 3-band (Bose), 5-band + Clear Bass (Sony), or 8-band (Soundcore) custom equalisers.
+- **Calls & voice:** Self Voice (sidetone), Speak-to-Chat (Sony), and auto answer.
+- **Device & battery:** single or per-earbud (`L / R / Case`) battery readout, multipoint status, multi-headphone switcher, rename, pairing mode, and power off.
+- **Quick Settings tile, Material You widget & ongoing notification:** one-tap mode / ANC cycling and live battery readout from anywhere on the phone.
+- **Auto-connect, smart multi-pair auto-switch & offline view:** starts automatically when associated headphones connect (Android 16+), switches automatically to whichever paired headset is actively connected, and shows the last known settings dimmed when disconnected.
+- **Privacy-safe diagnostics:** one-tap diagnostic report copy on the About screen with zero MAC addresses or personal device aliases.
 
 ## Install
 
@@ -31,44 +29,70 @@ Download the APK from [GitHub Releases](https://github.com/Sargemck/practical_he
 
 ## Supported Headphones
 
-- **Bose (Verified):** QuietComfort Ultra Headphones (2nd Gen) — tested on firmware 10.12.12.
+- **Bose (Verified):** QuietComfort Ultra Headphones (2nd Gen) — hardware-verified on firmware 10.12.12.
 - **Bose (Experimental):** QC Ultra Earbuds 2, QuietComfort Headphones (2023), QC45, QC35 / QC35 II, Ultra Open Earbuds.
 - **Sony (Experimental):** WH-1000XM3, WH-1000XM4, WH-1000XM5, WH-1000XM6, WF-1000XM4, WF-1000XM5 (MDR v1/v2).
 - **Anker Soundcore (Experimental):** Life Q30, Life Q35, Space Q45, Space One, Space 2, Liberty 4 / 4 NC.
 - **Samsung (Experimental):** Galaxy Buds2, Buds2 Pro, Buds FE, Buds Live, Buds Pro.
+- **Nothing / CMF (Experimental):** Nothing Ear, Ear (a), Ear (2), Headphone (1), CMF Headphone Pro, CMF Buds 2 (NT Link RFCOMM).
+- **JBL (Experimental):** JBL Tune 230NC TWS, Wave Buds 2, and compatible `excelpoint` BLE GATT earbuds.
 
 ## Requirements
 
-- Android 12 or newer. Auto-connect needs Android 16 or newer.
-- QC Ultra Headphones (2nd Gen), paired with the phone. Tested on firmware 10.12.12.
-- Only one app can control the headphones at a time. If the Bose app connects, this app shows "In use by another app" and offers to reconnect.
+- Android 12 (API 31) or newer. Companion-device auto-connect requires Android 16 or newer.
+- Supported headphones paired with the phone over Classic Bluetooth.
+- Only one app can hold the RFCOMM control channel at a time. If an official companion app takes over the link, Practical Headphones detects contention rather than fighting for the socket and offers a one-tap **Reconnect**.
 
 ## Privacy
 
-The app has no internet permission. It reads and changes settings on your headphones over Bluetooth, and keeps the last values it read on the phone. None of it is backed up or copied to a new phone. See [PRIVACY.md](PRIVACY.md).
+The app requests **no `INTERNET` permission** and includes zero analytics or crash-reporting SDKs. It reads and writes settings directly on your headphones over Bluetooth and stores only the last-seen settings in private no-backup app storage so they never leave the device. See [PRIVACY.md](PRIVACY.md).
 
-## How it works
+## Architecture
 
-- The headphones take commands over classic Bluetooth (RFCOMM), in a protocol called BMAP. The app speaks it directly, so nothing goes through Bose's servers.
-- The protocol code is a pure Kotlin module, [`bmap`](bmap/), with no Android dependencies. Its tests run against replies captured from real headphones and against a simulated pair.
-- Every screen has screenshot tests in light, dark and the largest font size. They run with the unit tests on every change.
-- The app only reads and writes settings. It has no firmware-update code, and it refuses the commands that unpair devices.
-- What was learned from the real headphones, including where firmware 10.12.12 differs from older notes, is in [docs/FINDINGS.md](docs/FINDINGS.md).
+The codebase is split into pure-JVM protocol modules and a thin Android shell:
 
-## How it was built
+| Module | Role |
+|---|---|
+| [`:bmap`](bmap/) | Pure Kotlin/JVM Bose BMAP frame codec, stream parser, 6-model catalog, and `FakeBmapDevice` simulator. |
+| [`:sony`](sony/) | Pure Kotlin/JVM Sony MDR v1/v2 byte-stuffed codec, 1-bit ACK/sequence engine, NC/ASM & EQEBB protocol, and `FakeSonyDevice`. |
+| [`:soundcore`](soundcore/) | Pure Kotlin/JVM Anker Soundcore packet codec, state-blob / ANC / 8-band EQ protocol, and `FakeSoundcoreDevice`. |
+| [`:samsung`](samsung/) | Pure Kotlin/JVM Samsung Galaxy Buds SPP + CRC16-CCITT codec, extended status / ANC / EQ protocol, and `FakeSamsungDevice`. |
+| [`:nothing`](nothing/) | Pure Kotlin/JVM Nothing / CMF NT Link + CRC16-MODBUS codec, battery / Adaptive ANC protocol, and `FakeNothingDevice`. |
+| [`:jbl`](jbl/) | Pure Kotlin/JVM JBL BLE GATT + Fast Pair Message Stream parser, ANC / Ambient Aware / TalkThru protocol, and `FakeJblDevice`. |
+| [`:app`](app/) | Android foreground service (`connectedDevice`), RFCOMM & BLE GATT transports, brand-agnostic `HeadphoneDriver` & optimistic `HeadphoneRepository`, Jetpack Compose + Material You UI, home screen widget, Quick Settings tile, and Roborazzi screenshot tests. |
 
-The code was written with [Claude Code](https://claude.com/claude-code), one milestone at a time. Each milestone had a written plan that was reviewed before any code, and a run on the real phone and headphones before it was accepted. The plans are in [docs/process](docs/process/).
+- **Zero Android imports in protocol modules:** all wire framing, checksums, retries, and state machines are tested deterministically on the JVM against captured hardware fixtures and in-memory fake devices.
+- **Battery-safe Bluetooth lifecycle:** RFCOMM connections are only opened when `SystemLinkMonitor` reports A2DP, HFP, or LE Audio connected — never polling or waking sleeping headphones in a bag.
+- **Visual regression testing:** every screen and card is verified with Roborazzi golden screenshots across light theme, dark theme, and 200% font scale on every test run.
+- Hardware protocol notes and firmware 10.12.12 findings are documented in [docs/FINDINGS.md](docs/FINDINGS.md).
 
-## Building
+## Building & Demo Mode
 
-- JDK 21, and the Android SDK with platform 37.
-- `./gradlew test lint assembleDebug` runs the unit and screenshot tests, lint, and the debug build.
-- `./gradlew assembleRelease` builds an unsigned release.
-- To sign the release, put a `keystore.properties` at the repo root with `storeFile`, `storePassword`, `keyAlias` and `keyPassword`. It's gitignored.
+- Requires **JDK 21** and the **Android SDK** (`platforms;android-37.0`).
+- Full check (JVM protocol tests, Robolectric UI + Roborazzi screenshot tests, Android Lint, debug APK):
+  ```bash
+  ./gradlew test lint assembleDebug
+  ```
+- Unsigned release APK (sign via gitignored `keystore.properties` with `storeFile`, `storePassword`, `keyAlias`, `keyPassword`):
+  ```bash
+  ./gradlew assembleRelease
+  ```
+- **Try without physical headphones (Debug Demo Mode):** install the debug build on any emulator or phone and launch against an in-memory simulated headset:
+  ```bash
+  ./gradlew installDebug
+  adb shell am start -n io.github.sargemck.practicalheadphones/.MainActivity --ez demo true --es demoDevice qc_ultra2
+  # Other simulated models: qc_ultra2_earbuds | qc45 | qc35 | sony_xm5 | soundcore_q45 | galaxy_buds2_pro | nothing_ear | jbl_tune230nc
+  ```
 
 ## Credits
 
-Protocol knowledge and ported logic come from [bosectl](https://github.com/aaronsb/bosectl) (MIT). Icons are Material Icons by Google (Apache License 2.0). See [NOTICE](NOTICE).
+Protocol knowledge and ported logic come from open-source MIT projects:
+- [bosectl](https://github.com/aaronsb/bosectl) — Aaron Bockelie (MIT)
+- [SonyHeadphonesClient](https://github.com/Plutoberth/SonyHeadphonesClient) — Nir Harel, Mor Gal, Sem Visscher, jimzrt, guilhermealbm, and contributors (MIT)
+- [soundcorebridge](https://github.com/mervin008/soundcorebridge) — Mervin (MIT)
+- [omarchy-headphones](https://github.com/ncr/omarchy-headphones) — Jacek Becela (MIT)
+
+Icons are Material Icons by Google (Apache License 2.0). Full notices in [NOTICE](NOTICE).
 
 ## Licence
 

@@ -65,4 +65,25 @@ class HeadphonesLocatorTest {
         assertEquals(HeadphoneBrand.BOSE, HeadphonesLocator.detectBrand(bose45))
         assertEquals(sony, HeadphonesLocator.select(listOf(sony), savedAddress = null))
     }
+
+    @Test
+    fun `auto-switches to actively connected supported headset when saved headset is offline`() {
+        val deskBose = HeadphonesLocator.Candidate("AA:BB:CC:DD:EE:01", "Bose QC Ultra", hasBmapUuid = true, isLeOnly = false)
+        val pocketSony = HeadphonesLocator.Candidate("11:22:33:44:55:01", "WH-1000XM5", hasBmapUuid = false, isLeOnly = false)
+
+        // When neither is connected, keep the saved Bose
+        assertEquals(deskBose, HeadphonesLocator.select(listOf(deskBose, pocketSony), savedAddress = deskBose.address, connectedAddresses = emptySet()))
+
+        // When Bose is offline in bag and Sony is actively connected, auto-switch to Sony
+        assertEquals(
+            pocketSony,
+            HeadphonesLocator.select(listOf(deskBose, pocketSony), savedAddress = deskBose.address, connectedAddresses = setOf(pocketSony.address)),
+        )
+
+        // When BOTH are connected simultaneously, honour the user's saved selection
+        assertEquals(
+            deskBose,
+            HeadphonesLocator.select(listOf(deskBose, pocketSony), savedAddress = deskBose.address, connectedAddresses = setOf(deskBose.address, pocketSony.address)),
+        )
+    }
 }

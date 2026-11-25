@@ -1,0 +1,5 @@
+Multi-brand & multi-model release:
+- Experimental support for Sony (WH/WF-1000XM3–XM6), Anker Soundcore (Q30/Q35/Q45/Space One/Space 2/Liberty 4), Samsung Galaxy Buds (Buds2/Buds2 Pro/Buds FE/Live/Pro), Nothing & CMF (Ear/Ear (a)/Ear (2)/Headphone (1)/CMF), JBL BLE GATT earbuds, and additional Bose models (QC Ultra Earbuds 2, QuietComfort, QC45, QC35, Ultra Open).
+- Material You home screen widget with battery and one-tap Mode/ANC controls.
+- Smart auto-switching between multiple paired headphones and LE Audio connection monitoring.
+- Privacy-safe diagnostic report copy on the About screen.

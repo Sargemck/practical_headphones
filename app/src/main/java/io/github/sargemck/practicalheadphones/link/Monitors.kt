@@ -47,11 +47,20 @@ fun Context.registerSystemReceiver(receiver: BroadcastReceiver, filter: IntentFi
 
 object BoseAppDetector {
     const val PACKAGE = "com.bose.bosemusic"
+
+    data class CompanionInfo(
+        val installed: Boolean,
+        val displayName: String?,
+        val packageName: String,
+    )
+
     private val BRAND_APPS = mapOf(
         HeadphoneBrand.BOSE to (PACKAGE to "Bose"),
         HeadphoneBrand.SONY to ("com.sony.songpal.mdr" to "Sound Connect"),
         HeadphoneBrand.SOUNDCORE to ("com.oceanwing.soundcore" to "Soundcore"),
         HeadphoneBrand.SAMSUNG to ("com.samsung.accessory.atticmgr" to "Galaxy Wearable"),
+        HeadphoneBrand.NOTHING to ("com.nothing.smartcenter" to "Nothing X"),
+        HeadphoneBrand.JBL to ("jbl.stc.com" to "JBL Headphones"),
     )
 
     /** Needs the `<queries>` entry in the manifest. */
@@ -62,9 +71,13 @@ object BoseAppDetector {
         false
     }
 
-    /** Returns `(installed, appDisplayName)` for the companion app of [brand]. */
-    fun detectFor(context: Context, brand: HeadphoneBrand?): Pair<Boolean, String?> {
+    /** Returns companion app detection info for [brand]. */
+    fun detectFor(context: Context, brand: HeadphoneBrand?): CompanionInfo {
         val (pkg, name) = BRAND_APPS[brand ?: HeadphoneBrand.BOSE] ?: (PACKAGE to "Bose")
-        return isInstalled(context, pkg) to (if (pkg == PACKAGE) null else name)
+        return CompanionInfo(
+            installed = isInstalled(context, pkg),
+            displayName = if (pkg == PACKAGE) null else name,
+            packageName = pkg,
+        )
     }
 }

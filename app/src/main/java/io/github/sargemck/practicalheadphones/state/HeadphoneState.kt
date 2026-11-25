@@ -61,6 +61,7 @@ data class Capabilities(
     val canPair: Boolean = true,
     val canPowerOff: Boolean = true,
     val canEditModes: Boolean = true,
+    val supportsModeAncToggle: Boolean = true,
     val editableSlots: IntRange = 4..10,
     val presetSlots: IntRange = 0..3,
     val presetNames: List<String> = listOf("Quiet", "Aware", "Immersion", "Cinema"),
@@ -101,10 +102,12 @@ data class HeadphoneState(
     val discreteAnc: Section<DiscreteAncState> = Section.Unsupported,
     val speakToChat: Section<Boolean> = Section.Unsupported,
     val eqPresets: List<EqPresetChoice>? = null,
+    val selectedEqPreset: String? = null,
     val eqBandLabels: List<String>? = null,
     val availableDevices: List<PairedHeadphoneChoice> = emptyList(),
     val capabilities: Capabilities = Capabilities(),
     val companionAppName: String? = null,
+    val companionAppPackage: String? = null,
     /**
      * The values last read while connected, kept after the link drops so the UI can show them
      * dimmed. Null until something has loaded in this process. Never shown as live values.
@@ -116,6 +119,7 @@ data class HeadphoneState(
         link = link,
         boseAppInstalled = boseAppInstalled,
         companionAppName = companionAppName,
+        companionAppPackage = companionAppPackage,
         availableDevices = availableDevices,
         lastKnown = snapshot() ?: lastKnown,
     )

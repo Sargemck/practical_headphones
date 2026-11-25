@@ -5,6 +5,8 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.os.ParcelUuid
+import io.github.sargemck.practicalheadphones.jbl.JblProtocol
+import io.github.sargemck.practicalheadphones.nothing.NothingProtocol
 import io.github.sargemck.practicalheadphones.samsung.SamsungProtocol
 import io.github.sargemck.practicalheadphones.sony.SonyProtocol
 import io.github.sargemck.practicalheadphones.soundcore.SoundcoreProtocol
@@ -16,6 +18,8 @@ enum class HeadphoneBrand(val displayName: String) {
     SONY("Sony"),
     SOUNDCORE("Soundcore"),
     SAMSUNG("Samsung"),
+    NOTHING("Nothing"),
+    JBL("JBL"),
 }
 
 /**
@@ -28,11 +32,12 @@ enum class HeadphoneBrand(val displayName: String) {
 class HeadphonesLocator(context: Context) {
     private val prefs = context.getSharedPreferences("headphones", Context.MODE_PRIVATE)
 
-    fun find(adapter: BluetoothAdapter): BluetoothDevice? {
+    fun find(adapter: BluetoothAdapter, connectedAddresses: Set<String> = emptySet()): BluetoothDevice? {
         val bonded = adapter.bondedDevices.orEmpty()
         val candidates = bonded.map(::toCandidate)
-        val selected = select(candidates, savedAddress = prefs.getString(KEY_ADDRESS, null)) ?: return null
-        if (selected.address != prefs.getString(KEY_ADDRESS, null)) {
+        val saved = prefs.getString(KEY_ADDRESS, null)
+        val selected = select(candidates, savedAddress = saved, connectedAddresses = connectedAddresses) ?: return null
+        if (selected.address != saved) {
             prefs.edit().putString(KEY_ADDRESS, selected.address).apply()
         }
         return bonded.firstOrNull { it.address == selected.address }
@@ -112,20 +117,42 @@ class HeadphonesLocator(context: Context) {
             if (SamsungProtocol.UUID_SPP_NEW in uuids || "galaxy buds" in n) {
                 return HeadphoneBrand.SAMSUNG
             }
+            if (NothingProtocol.UUID_NT_LINK in uuids ||
+                "nothing ear" in n || "cmf buds" in n || "cmf headphone" in n ||
+                n == "ear (a)" || n == "ear (2)" || n == "ear (1)" || n == "headphone (1)"
+            ) {
+                return HeadphoneBrand.NOTHING
+            }
+            if (JblProtocol.JBL_VENDOR_RFCOMM_UUID in uuids || JblProtocol.GATT_SERVICE_UUID in uuids ||
+                "jbl tune" in n || "jbl wave" in n || "jbl live" in n || "jbl tour" in n
+            ) {
+                return HeadphoneBrand.JBL
+            }
             return null
         }
 
-        internal fun select(candidates: Iterable<Candidate>, savedAddress: String?): Candidate? {
+        internal fun select(
+            candidates: Iterable<Candidate>,
+            savedAddress: String?,
+            connectedAddresses: Set<String> = emptySet(),
+        ): Candidate? {
             val classic = candidates.filterNot { it.isLeOnly }
+            val connectedSupported = classic.filter { it.address in connectedAddresses && detectBrand(it) != null }
             if (savedAddress != null) {
-                classic.firstOrNull { it.address == savedAddress }?.let { return it }
+                val saved = classic.firstOrNull { it.address == savedAddress }
+                // Keep the saved headset if it's currently connected or no other supported headset is active.
+                // Note: even a renamed Bose without cached UUIDs is kept when savedAddress matches.
+                if (saved != null && (saved.address in connectedAddresses || connectedSupported.isEmpty())) {
+                    return saved
+                }
             }
+            val pool = connectedSupported.ifEmpty { classic }
             // Prefer verified Bose QC Ultra first for backward compatibility.
-            val qcUltra = classic.filter { it.name?.contains(NAME_MATCH, ignoreCase = true) == true }
+            val qcUltra = pool.filter { it.name?.contains(NAME_MATCH, ignoreCase = true) == true }
             qcUltra.firstOrNull { it.hasBmapUuid }?.let { return it }
             qcUltra.firstOrNull()?.let { return it }
-            classic.firstOrNull { it.hasBmapUuid }?.let { return it }
-            return classic.firstOrNull { detectBrand(it) != null }
+            pool.firstOrNull { it.hasBmapUuid }?.let { return it }
+            return pool.firstOrNull { detectBrand(it) != null }
         }
     }
 }

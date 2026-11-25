@@ -4,6 +4,8 @@ import io.github.sargemck.practicalheadphones.bmap.AudioSettings
 import io.github.sargemck.practicalheadphones.bmap.Favourites
 import io.github.sargemck.practicalheadphones.bmap.ModeConfig
 import io.github.sargemck.practicalheadphones.bmap.Spatial
+import io.github.sargemck.practicalheadphones.state.DiscreteAncOption
+import io.github.sargemck.practicalheadphones.state.DiscreteAncState
 import io.github.sargemck.practicalheadphones.state.HeadphoneState
 import io.github.sargemck.practicalheadphones.state.LinkState
 import io.github.sargemck.practicalheadphones.state.ModesSection
@@ -59,5 +61,30 @@ class NotificationModelTest {
         assertEquals(0, nextFavourite(modes.copy(current = 4)))
         assertNull(nextFavourite(modes.copy(favourites = Favourites(11, setOf(9)))))
         assertNull(nextFavourite(modes.copy(favourites = null)))
+    }
+
+    @Test
+    fun `discrete ANC headphones show mode and toggle action`() {
+        val sony = HeadphoneState(
+            link = LinkState.Connected,
+            name = Section.Loaded("WH-1000XM5"),
+            battery = Section.Loaded(82),
+            modes = Section.Unsupported,
+            audio = Section.Unsupported,
+            discreteAnc = Section.Loaded(
+                DiscreteAncState(
+                    options = listOf(
+                        DiscreteAncOption("ANC", "Noise cancelling"),
+                        DiscreteAncOption("AMBIENT", "Ambient sound"),
+                        DiscreteAncOption("OFF", "Off"),
+                    ),
+                    selectedId = "AMBIENT",
+                ),
+            ),
+        )
+        assertEquals(
+            NotificationModel("WH-1000XM5", "Battery 82% · Ambient sound", listOf(NotificationAction.NoiseCancellingOff)),
+            NotificationModel.from(sony),
+        )
     }
 }

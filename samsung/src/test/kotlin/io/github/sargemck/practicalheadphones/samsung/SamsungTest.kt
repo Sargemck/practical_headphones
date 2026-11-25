@@ -27,6 +27,10 @@ class SamsungTest {
         val out = mutableListOf<SamsungFrame>()
         for (b in (byteArrayOf(0x00, 0x11) + raw)) out += parser.feed(byteArrayOf(b))
         assertEquals(listOf(decoded), out)
+
+        // False SOF (0xFD) with plausible length before a valid frame must resync without dropping the real frame
+        val falseHeader = byteArrayOf(SamsungFrameCodec.SOF.toByte(), 0x05, 0x10, 0x99.toByte())
+        assertEquals(listOf(decoded), parser.feed(falseHeader + raw))
     }
 
     @Test

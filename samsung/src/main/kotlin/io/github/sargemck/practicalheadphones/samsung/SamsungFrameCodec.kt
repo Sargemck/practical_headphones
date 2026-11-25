@@ -98,8 +98,14 @@ class SamsungFrameParser {
             }
             if (buffer.size < total) break
             val raw = ByteArray(total) { buffer[it] }
-            buffer.subList(0, total).clear()
-            SamsungFrameCodec.decode(raw)?.let(out::add)
+            val decoded = SamsungFrameCodec.decode(raw)
+            if (decoded != null) {
+                buffer.subList(0, total).clear()
+                out.add(decoded)
+            } else {
+                // False SOF inside payload or corrupt header: step past 0xFD and resync.
+                buffer.removeAt(0)
+            }
         }
         return out
     }

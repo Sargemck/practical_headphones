@@ -6,12 +6,24 @@ import kotlin.time.Duration.Companion.milliseconds
  * High-level typed client for Sony MDR v1/v2 headphones and earbuds.
  */
 class SonyHeadphones(private val connection: SonyConnection) {
-    /** Handshake: returns true if protocol v2 (>= 8 byte reply), false if v1. */
+    /**
+     * Handshake: returns true if protocol v2 (>= 8 byte reply), false if v1.
+     * Retries up to 3 attempts (2 s each) per `omarchy-headphones/sony-bridge`, since freshly
+     * opened RFCOMM channels occasionally drop the first frame.
+     */
     suspend fun handshake(): Boolean {
-        val reply = connection.request(SonyProtocol.buildProtocolInfoGet()) {
-            it.isNotEmpty() && (it[0].toInt() and 0xFF) == SonyProtocol.CONNECT_RET_PROTOCOL_INFO
+        var lastTimeout: SonyException.Timeout? = null
+        repeat(3) {
+            try {
+                val reply = connection.request(SonyProtocol.buildProtocolInfoGet(), timeout = 2000.milliseconds) {
+                    it.isNotEmpty() && (it[0].toInt() and 0xFF) == SonyProtocol.CONNECT_RET_PROTOCOL_INFO
+                }
+                return reply.size >= 8
+            } catch (e: SonyException.Timeout) {
+                lastTimeout = e
+            }
         }
-        return reply.size >= 8
+        throw lastTimeout ?: SonyException.Timeout("Sony handshake timed out")
     }
 
     /**
@@ -49,17 +61,20 @@ class SonyHeadphones(private val connection: SonyConnection) {
         )
     }
 
-    /** Reads single battery first; if earbuds, also reads L/R and cradle battery. */
-    suspend fun getBattery(): SonyBattery {
-        val lr = try {
-            val reply = connection.request(SonyProtocol.buildBatteryGet(SonyProtocol.BATTERY_LEFT_RIGHT), timeout = 1200.milliseconds) {
-                SonyProtocol.parseBattery(it)?.let { b -> b.left != null || b.right != null } == true
-            }
-            SonyProtocol.parseBattery(reply)
-        } catch (_: SonyException.Timeout) {
-            null
-        }
-        if (lr != null) {
+    /**
+     * Reads battery, probing L/R + cradle first when [preferEarbuds] is true, or single battery
+     * first on headband headphones so WH-series models never stall on an unanswered L/R query.
+     */
+    suspend fun getBattery(preferEarbuds: Boolean = false): SonyBattery {
+        suspend fun queryEarbuds(): SonyBattery? {
+            val lr = try {
+                val reply = connection.request(SonyProtocol.buildBatteryGet(SonyProtocol.BATTERY_LEFT_RIGHT), timeout = 1200.milliseconds) {
+                    SonyProtocol.parseBattery(it)?.let { b -> b.left != null || b.right != null } == true
+                }
+                SonyProtocol.parseBattery(reply)
+            } catch (_: SonyException.Timeout) {
+                null
+            } ?: return null
             val cradle = try {
                 val reply = connection.request(SonyProtocol.buildBatteryGet(SonyProtocol.BATTERY_CRADLE), timeout = 800.milliseconds) {
                     SonyProtocol.parseBattery(it)?.cradle != null
@@ -70,10 +85,22 @@ class SonyHeadphones(private val connection: SonyConnection) {
             }
             return lr.copy(cradle = cradle)
         }
-        val single = connection.request(SonyProtocol.buildBatteryGet(SonyProtocol.BATTERY_SINGLE)) {
-            SonyProtocol.parseBattery(it) != null
+
+        suspend fun querySingle(): SonyBattery? = try {
+            val reply = connection.request(SonyProtocol.buildBatteryGet(SonyProtocol.BATTERY_SINGLE), timeout = 1200.milliseconds) {
+                SonyProtocol.parseBattery(it) != null
+            }
+            SonyProtocol.parseBattery(reply)
+        } catch (_: SonyException.Timeout) {
+            null
         }
-        return SonyProtocol.parseBattery(single) ?: throw SonyException.Unsupported("Malformed Sony battery reply")
+
+        val battery = if (preferEarbuds) {
+            queryEarbuds() ?: querySingle()
+        } else {
+            querySingle() ?: queryEarbuds()
+        }
+        return battery ?: throw SonyException.Timeout("Sony battery query timed out")
     }
 
     suspend fun getEq(): SonyEqState? = try {

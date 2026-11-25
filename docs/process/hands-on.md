@@ -1,6 +1,6 @@
 # Hands-on checklist (H1 + H2)
 
-Everything that needs ears, hands on the headphones, or Baris's judgement. All milestones are built, so H1 and H2 can run as one session, about 60 min. Claude Code watches logcat throughout and writes results into FINDINGS.
+Everything that needs ears, hands on the headphones, or Sargemck's judgement. All milestones are built, so H1 and H2 can run as one session, about 60 min. Claude Code watches logcat throughout and writes results into FINDINGS.
 
 **Setup:** M7 build installed, headphones worn, phone connected to the PC over USB, PC audio available. Close Quiet Rebellion and the Bose app.
 

@@ -6,23 +6,23 @@ Each milestone: plan mode, reviewer approves the plan, build on `main`, mileston
 
 ## How testing works (read this first)
 
-Baris's time on the phone is the scarcest resource in this project. Testing is layered so he's only needed twice.
+Sargemck's time on the phone is the scarcest resource in this project. Testing is layered so he's only needed twice.
 
 1. **JVM tests, every change.** `:bmap` unit tests against real fixtures and `FakeBmapDevice`. Compose UI tests and screenshot tests (Robolectric + Roborazzi or equivalent) against the fake. Claude Code looks at the screenshots itself: light, dark, largest font.
 2. **Hands-off device runs, Claude Code alone.** Needs only the *desk setup* (below). Claude Code installs, launches, drives the UI with adb, takes screenshots, reads logcat, and runs instrumented hardware tests against the real headphones: read everything, write, read back, restore original values. Claude Code can also toggle phone Bluetooth and reboot the phone to test reconnect and auto-connect.
-3. **Hands-on sessions, Baris.** Only for what needs ears, hands on the headphones, wearing them, or his judgement. There are exactly two: **H1** after M3, **H2** after M7. Each comes with a prepared checklist and should take under 45 minutes.
+3. **Hands-on sessions, Sargemck.** Only for what needs ears, hands on the headphones, wearing them, or his judgement. There are exactly two: **H1** after M3, **H2** after M7. Each comes with a prepared checklist and should take under 45 minutes.
 
 Rules:
-- Never ask Baris for a physical action outside H1/H2. If something truly can't proceed without one, stop, explain why, and batch everything needed into one ask.
+- Never ask Sargemck for a physical action outside H1/H2. If something truly can't proceed without one, stop, explain why, and batch everything needed into one ask.
 - Anything that can't be verified until H1/H2 gets listed in the milestone report under "Deferred to H1/H2" so nothing gets forgotten.
 - Never send power-off or pairing-mode during hands-off runs. Nobody's there to turn the headphones back on.
 
-**Desk setup** (Claude Code asks for it at the start of a hands-off run; Baris sets it up and walks away):
+**Desk setup** (Claude Code asks for it at the start of a hands-off run; Sargemck sets it up and walks away):
 - Pixel on the USB cable, phone unlocked at the start of the run ("Stay awake" is blocked by device policy; debug builds keep our screen on and show over the lock screen)
 - Headphones on the desk, powered on, connected to the phone
 - Bose app and Quiet Rebellion not running
 
-Every hands-off run starts by checking the headphones are connected. They drop the link about 10.5 min after it comes up when idle off-head. If they're asleep, Claude Code wakes them with a spike connect (debug tooling only). Only if that fails is it one batched ask to Baris.
+Every hands-off run starts by checking the headphones are connected. They drop the link about 10.5 min after it comes up when idle off-head. If they're asleep, Claude Code wakes them with a spike connect (debug tooling only). Only if that fails is it one batched ask to Sargemck.
 
 Definition of done for every milestone:
 - `./gradlew test lint assembleDebug` green
@@ -30,7 +30,7 @@ Definition of done for every milestone:
 - Hands-off device run for that milestone passed, with a log excerpt or screenshots in the milestone report
 - `docs/FINDINGS.md` updated if anything was learned from the device
 
-## Before S0 (Baris, ~20 min, can't be done by Claude Code)
+## Before S0 (Sargemck, ~20 min, can't be done by Claude Code)
 
 1. Install **Git for Windows** (git-scm.com, defaults are fine). Claude Code uses its Git Bash as its shell.
 2. Install **VS Code**.
@@ -38,7 +38,7 @@ Definition of done for every milestone:
 4. **Phone:** Settings > About phone > tap Build number 7 times. Then Settings > System > Developer options > turn on USB debugging and "Stay awake". Plug the Pixel into the PC with a data cable.
 5. Make an empty folder, e.g. `C:\dev\qc-app`. Put `CLAUDE.md` and `PLAN.md` in it. Open the folder in VS Code, open the terminal (Ctrl+`), run `claude`.
 
-## Decisions (Baris)
+## Decisions (Sargemck)
 
 - **D1 App name + package ID.** Done: Practical Headphones, `io.github.sargemck.practicalheadphones`.
 - **D2 GitHub repo** (private is fine). Created in S0. Tell the reviewer `owner/repo` so plans and work can be read directly.
@@ -47,16 +47,16 @@ Definition of done for every milestone:
 
 ## S0: Dev environment (Claude Code, 1 evening)
 
-The only milestone that commits straight to `main` (the repo is empty). No PR; Baris sends the reviewer the summary.
+The only milestone that commits straight to `main` (the repo is empty). No PR; Sargemck sends the reviewer the summary.
 
-1. **Inventory first.** Report what's installed and what's missing: `java -version`, `git`, `gh`, `adb`, `sdkmanager`, `ANDROID_HOME`, `JAVA_HOME`, free disk space. Propose the install list. Wait for Baris's yes.
+1. **Inventory first.** Report what's installed and what's missing: `java -version`, `git`, `gh`, `adb`, `sdkmanager`, `ANDROID_HOME`, `JAVA_HOME`, free disk space. Propose the install list. Wait for Sargemck's yes.
 2. **JDK 21** (Temurin) via winget if missing. Set `JAVA_HOME` as a user env var.
 3. **Android command-line tools.** Get the current Windows zip link from developer.android.com/studio ("Command line tools only"). Extract so `sdkmanager` ends up at `%LOCALAPPDATA%\Android\Sdk\cmdline-tools\latest\bin`. Set `ANDROID_HOME`; add `platform-tools` and `cmdline-tools\latest\bin` to the user PATH (PowerShell `[Environment]::SetEnvironmentVariable(..., "User")`).
-4. **Restart.** Ask Baris to restart VS Code so the new env vars load, then resume.
+4. **Restart.** Ask Sargemck to restart VS Code so the new env vars load, then resume.
 5. **SDK packages:** `sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;<latest 36.x>"`. Accept licences (`yes | sdkmanager --licenses`).
 6. **Phone link.** `adb devices` must list the Pixel as `device`.
-   - `unauthorized`: ask Baris to tap Allow on the phone.
-   - Not listed: try `sdkmanager "extras;google;usb_driver"` and walk Baris through the Device Manager driver update, or switch to wireless debugging (`adb pair`, `adb connect`).
+   - `unauthorized`: ask Sargemck to tap Allow on the phone.
+   - Not listed: try `sdkmanager "extras;google;usb_driver"` and walk Sargemck through the Device Manager driver update, or switch to wireless debugging (`adb pair`, `adb connect`).
 7. **Prove the hands-off toolkit works** on the Pixel (Android 17), and record results in FINDINGS:
    - screenshot: `adb exec-out screencap -p > shot.png`, then view it
    - UI driving: `adb shell input tap/swipe/keyevent`, and `adb shell uiautomator dump` to find elements
@@ -64,7 +64,7 @@ The only milestone that commits straight to `main` (the repo is empty). No PR; B
    - reboot: `adb reboot`, then `adb wait-for-device`; time until `adb devices` is back
    - Do the headphones stay on while idle on the desk, or auto-off after a while? Note the time.
 8. **Git:** `git init`. `.gitignore` covering the standard Android entries, `local.properties`, `*.jks`, `*.keystore`, `reference/`, `.claude/settings.local.json`, `build/`, `.gradle/`, `*.png` in the repo root (scratch screenshots). First commit with `CLAUDE.md` and `PLAN.md`.
-9. **GitHub:** install `gh` via winget if Baris agrees. `gh auth login` is Baris's to do (browser). Create a private repo, push `main`.
+9. **GitHub:** install `gh` via winget if Sargemck agrees. `gh auth login` is Sargemck's to do (browser). Create a private repo, push `main`.
 10. **Reference:** `git clone https://github.com/aaronsb/bosectl reference/bosectl`.
 11. **Gradle wrapper bootstrap:** download the current stable Gradle distribution to a temp folder, run `gradle wrapper` in the repo, delete the temp folder. From then on only `./gradlew`.
 12. **VS Code workspace:**
@@ -124,7 +124,7 @@ Done when:
 - VS Code shows the four tasks and offers the recommended extensions
 - Repo is on GitHub with `main` pushed
 
-Baris then installs the recommended VS Code extensions when VS Code offers them.
+Sargemck then installs the recommended VS Code extensions when VS Code offers them.
 
 ---
 
@@ -144,7 +144,7 @@ Screen checks (F6):
 - With the debug activity in front for 7+ min, the screen stays on despite the 5-min policy cap.
 - With the phone locked, `am start` brings the debug activity up over the lock screen, and screencap and input still work.
 
-Experiments (all hands-off; ask Baris to uninstall Quiet Rebellion or force-stop it with adb first):
+Experiments (all hands-off; ask Sargemck to uninstall Quiet Rebellion or force-stop it with adb first):
 0. Keep-awake, run before experiment 5. The headphones sleep after 10 min idle off-head (S0 FINDINGS).
    - a. BMAP heartbeat: GET battery every 60 s. Still connected at 12 min?
    - b. If not: silent audio from a debug-only foreground service. Still connected at 12 min?
@@ -159,7 +159,7 @@ Experiments (all hands-off; ask Baris to uninstall Quiet Rebellion or force-stop
 7. Toggle phone Bluetooth off/on: does the socket die cleanly, and how long until the headphones reconnect?
 8. Public connect path (added after F9): `fetchUuidsWithSdp()`, log the headphones' UUIDs, SDP-connect to each vendor UUID and SPP once, record what each lands on and whether it answers BMAP. If one does, it becomes the primary path and reflection the fallback.
 
-Not tested here: whether the headphones push frames when their *physical* buttons are used or when worn/removed. That needs Baris, so it moves to H1. M2 is designed to work either way.
+Not tested here: whether the headphones push frames when their *physical* buttons are used or when worn/removed. That needs Sargemck, so it moves to H1. M2 is designed to work either way.
 
 Deliverable: `docs/FINDINGS.md` with results. The PR includes the fixture files.
 
@@ -228,9 +228,9 @@ Hands-off device run: install, drive every control via adb input, screenshot eac
 
 ## S1: Source control spike (after M3, before H1)
 
-Baris's request (2026-10-28): explicitly switch between two sources (e.g. PC and phone), and stop a notification on one from taking the audio from the other for a few seconds. Example: gaming on the PC, a work email notification on the phone takes the audio for 3-5 s. Third-party reports describe the same problem (Pixel 10 Pro + Bose earbuds + Mac, Oct 2025); the only fixes people offer are putting the earbuds away or turning off Bluetooth on the phone.
+Sargemck's request (2026-10-28): explicitly switch between two sources (e.g. PC and phone), and stop a notification on one from taking the audio from the other for a few seconds. Example: gaming on the PC, a work email notification on the phone takes the audio for 3-5 s. Third-party reports describe the same problem (Pixel 10 Pro + Bose earbuds + Mac, Oct 2025); the only fixes people offer are putting the earbuds away or turning off Bluetooth on the phone.
 
-Hands-off where possible. Baris's PC is the second source: Claude Code plays audio on the PC while the phone stays connected. Probe with the spike, each with read-backs:
+Hands-off where possible. Sargemck's PC is the second source: Claude Code plays audio on the PC while the phone stays connected. Probe with the spike, each with read-backs:
 - GET [4.4] and [5.1]: which sources are connected and which is active.
 - START [4.12] routing (bosectl `route()`, payload `[0x82, MAC]`), with and without both sources streaming.
 - [4.2] Disconnect and [4.1] Connect with the PC's MAC: does disconnecting the PC work without auth, and does Connect bring it back?
@@ -245,12 +245,12 @@ Also in S1's hands-off run (M3 review D5, no headphones needed): demo mode with 
 - **Routing ([4.12]):** not supported on fw 10.12.12 (FuncNotSupp in every state). It goes to "Never".
 - **[4.2] Disconnect:** with the bare MAC it disconnects another source, without auth, 3/3.
 - **[4.1] Connect:** with `[0x00] + MAC` it reconnects that source, without auth, 3/3.
-- **Notification steal:** 3 phone notifications while the PC streamed didn't move [5.1], but Baris heard the PC audio cut out and come back (2026-11-04). The steal is real and [5.1] doesn't show it. Phone media takes over within 300 ms and hands back 3.7 s after it stops.
+- **Notification steal:** 3 phone notifications while the PC streamed didn't move [5.1], but Sargemck heard the PC audio cut out and come back (2026-11-04). The steal is real and [5.1] doesn't show it. Phone media takes over within 300 ms and hands back 3.7 s after it stops.
 - **D5:** the failed section renders fine in dark mode. Robolectric quirk.
 
 Recommendation: a Sources milestone after M4 (outline below), built on [4.2] and [4.1]. H1 adds the by-ear checks.
 
-### H1: hands-on session after M3 and S1 (Baris, ~45 min)
+### H1: hands-on session after M3 and S1 (Sargemck, ~45 min)
 
 Claude Code prepares a numbered checklist before asking. Claude Code watches logcat throughout and writes results into FINDINGS.
 
@@ -284,7 +284,7 @@ Claude Code prepares a numbered checklist before asking. Claude Code watches log
 - Full slots: clear message, no silent failure.
 - Name validation: max 31 UTF-8 bytes, no duplicate of a preset name.
 
-Hands-off device run: create, edit, switch to, delete a test mode; verify via read-back; leave Baris's existing modes untouched (snapshot before, compare after).
+Hands-off device run: create, edit, switch to, delete a test mode; verify via read-back; leave Sargemck's existing modes untouched (snapshot before, compare after).
 - Favourites byte order: create a test mode in slot ≥ 8, favourite it, read back 31.8 to confirm the 16-bit mask byte order, restore favourites, delete the mode.
 
 ## M4b: Sources (proposed by S1)
@@ -332,10 +332,10 @@ Hands-off device run:
 - Release signing; keystore backed up outside the repo.
 - Privacy policy page: collects nothing, no network.
 - F-Droid metadata (fastlane folder) + reproducible build check.
-- Play: org vs personal account decision is Baris's. Personal accounts need 12 testers opted in for 14 days in closed testing before production.
+- Play: org vs personal account decision is Sargemck's. Personal accounts need 12 testers opted in for 14 days in closed testing before production.
 - README with screenshots (from the screenshot tests), credits, "not affiliated with Bose".
 
-### H2: hands-on session after M7 (Baris, ~30 min, then daily use)
+### H2: hands-on session after M7 (Sargemck, ~30 min, then daily use)
 
 - Install the release build.
 - Custom modes by ear; headphone button cycles favourites; QS tile.

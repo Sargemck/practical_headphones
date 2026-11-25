@@ -14,10 +14,16 @@ import io.github.sargemck.practicalheadphones.bmap.ErrorCodes
 import io.github.sargemck.practicalheadphones.bmap.FakeBmapDevice
 import io.github.sargemck.practicalheadphones.driver.BoseDriver
 import io.github.sargemck.practicalheadphones.driver.DriverConnector
+import io.github.sargemck.practicalheadphones.driver.JblDriver
+import io.github.sargemck.practicalheadphones.driver.NothingDriver
 import io.github.sargemck.practicalheadphones.driver.SamsungDriver
 import io.github.sargemck.practicalheadphones.driver.SonyDriver
 import io.github.sargemck.practicalheadphones.driver.SoundcoreDriver
+import io.github.sargemck.practicalheadphones.jbl.FakeJblDevice
+import io.github.sargemck.practicalheadphones.jbl.JblConnection
 import io.github.sargemck.practicalheadphones.link.BmapLog
+import io.github.sargemck.practicalheadphones.nothing.FakeNothingDevice
+import io.github.sargemck.practicalheadphones.nothing.NothingConnection
 import io.github.sargemck.practicalheadphones.samsung.FakeSamsungDevice
 import io.github.sargemck.practicalheadphones.samsung.SamsungConnection
 import io.github.sargemck.practicalheadphones.sony.FakeSonyDevice
@@ -66,6 +72,14 @@ object DebugEntry {
                     "galaxy_buds2_pro" -> {
                         val fake = FakeSamsungDevice()
                         SamsungDriver(SamsungConnection(fake, scope), scope, "Galaxy Buds2 Pro") { BmapLog.d("DEMO $it") }
+                    }
+                    "nothing_ear" -> {
+                        val fake = FakeNothingDevice()
+                        NothingDriver(NothingConnection(fake, scope), scope, "Nothing Ear (a)") { BmapLog.d("DEMO $it") }
+                    }
+                    "jbl_tune230nc" -> {
+                        val fake = FakeJblDevice()
+                        JblDriver(JblConnection(fake, scope), scope, "JBL TUNE230NC TWS") { BmapLog.d("DEMO $it") }
                     }
                     else -> {
                         val profile = BoseCatalog.byId(demoDevice) ?: BoseCatalog.QC_ULTRA_2

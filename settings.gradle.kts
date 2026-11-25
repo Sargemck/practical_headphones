@@ -16,4 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "practical-headphones"
 
-include(":bmap", ":sony", ":soundcore", ":samsung", ":app")
+include(":bmap", ":sony", ":soundcore", ":samsung", ":nothing", ":jbl", ":app")
